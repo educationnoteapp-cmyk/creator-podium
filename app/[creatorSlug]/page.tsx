@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import CreatorPodiumClient from './CreatorPodiumClient';
 
+export const dynamic = 'force-dynamic';
+
 interface Props {
   params: { creatorSlug: string };
 }
