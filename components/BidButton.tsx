@@ -11,6 +11,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import AvatarPicker from './AvatarPicker';
 import type { Bid, ModerationResult } from '@/types';
 
 const ABSOLUTE_MINIMUM_CENTS = 500;
@@ -49,6 +50,7 @@ function HeartbeatRing({ active }: { active: boolean }) {
 
 export default function BidButton({ creatorSlug, currentSpots, disabled = false }: BidButtonProps) {
   const [fanHandle, setFanHandle] = useState('');
+  const [fanAvatarUrl, setFanAvatarUrl] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [amountDollars, setAmountDollars] = useState('');
   const [loading, setLoading] = useState(false);
@@ -149,6 +151,7 @@ export default function BidButton({ creatorSlug, currentSpots, disabled = false 
           amountCents: cents,
           fanHandle: fanHandle.trim(),
           message: message.trim() || undefined,
+          fanAvatarUrl: fanAvatarUrl || undefined,
         }),
       });
 
@@ -239,19 +242,26 @@ export default function BidButton({ creatorSlug, currentSpots, disabled = false 
               </span>
             </div>
 
-            {/* Handle */}
+            {/* Handle + Avatar */}
             <div>
               <label className="text-xs text-muted mb-1.5 block font-medium tracking-wide">YOUR HANDLE</label>
-              <input
-                type="text"
-                value={fanHandle}
-                onChange={(e) => setFanHandle(e.target.value)}
-                placeholder="@yourname"
-                maxLength={30}
-                className="w-full bg-background border border-border rounded-xl px-4 py-3
-                           text-text-main placeholder:text-muted/40 text-sm
-                           focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_3px_rgba(79,70,229,0.1)] transition-all"
-              />
+              <div className="flex items-center gap-3">
+                <AvatarPicker
+                  fanHandle={fanHandle}
+                  value={fanAvatarUrl}
+                  onChange={setFanAvatarUrl}
+                />
+                <input
+                  type="text"
+                  value={fanHandle}
+                  onChange={(e) => setFanHandle(e.target.value)}
+                  placeholder="@yourname"
+                  maxLength={30}
+                  className="flex-1 min-w-0 bg-background border border-border rounded-xl px-4 py-3
+                             text-text-main placeholder:text-muted/40 text-sm
+                             focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_3px_rgba(79,70,229,0.1)] transition-all"
+                />
+              </div>
             </div>
 
             {/* Message */}

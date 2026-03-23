@@ -22,6 +22,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import AvatarPicker from "./AvatarPicker";
 
 interface BidActionProps {
   /** Amount in cents for the current #1 spot (0 if throne is empty) */
@@ -39,6 +40,7 @@ export default function BidAction({
   const MAXIMUM_BID_DOLLARS = 50; // $50 launch cap
 
   const [fanHandle, setFanHandle] = useState("");
+  const [fanAvatarUrl, setFanAvatarUrl] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [amountDollars, setAmountDollars] = useState("");
   const [loading, setLoading] = useState(false);
@@ -130,6 +132,7 @@ export default function BidAction({
           amountCents,
           fanHandle: fanHandle.trim(),
           message: message.trim() || undefined,
+          fanAvatarUrl: fanAvatarUrl || undefined,
         }),
       });
 
@@ -216,19 +219,26 @@ export default function BidAction({
           </span>
         </div>
 
-        {/* ── Handle ── */}
+        {/* ── Handle + Avatar ── */}
         <div>
           <label className="text-xs text-slate-500 mb-1.5 block font-medium tracking-widest">
             YOUR HANDLE
           </label>
-          <input
-            type="text"
-            value={fanHandle}
-            onChange={(e) => setFanHandle(e.target.value)}
-            placeholder="@yourname"
-            maxLength={30}
-            className={inputClass}
-          />
+          <div className="flex items-center gap-3">
+            <AvatarPicker
+              fanHandle={fanHandle}
+              value={fanAvatarUrl}
+              onChange={setFanAvatarUrl}
+            />
+            <input
+              type="text"
+              value={fanHandle}
+              onChange={(e) => setFanHandle(e.target.value)}
+              placeholder="@yourname"
+              maxLength={30}
+              className={`flex-1 min-w-0 ${inputClass.replace('w-full ', '')}`}
+            />
+          </div>
         </div>
 
         {/* ── Message ── */}
