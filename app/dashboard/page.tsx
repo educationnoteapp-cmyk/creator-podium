@@ -49,6 +49,7 @@ interface Analytics {
   kingHandle: string | null;
   avgCents: number;       // raw cents
   hasSeedData: boolean;   // true if any bid has seed_ prefix
+  seedBids: Bid[];        // all seeded bids for the Manage Demo Fans editor
 }
 
 interface EditRow {
@@ -144,6 +145,7 @@ export default function DashboardPage() {
     kingHandle: null,
     avgCents: 0,
     hasSeedData: false,
+    seedBids: [],
   });
 
   // Seeding
@@ -265,6 +267,7 @@ export default function DashboardPage() {
       kingHandle:  body.kingHandle  ?? null,
       avgCents:    body.avgCents    ?? 0,
       hasSeedData: body.hasSeedData ?? false,
+      seedBids:    body.seedBids    ?? [],
     });
     setRawBids(body.bids ?? []);
     setSeedBids(body.seedBids ?? []);
@@ -301,7 +304,7 @@ export default function DashboardPage() {
         fanHandle: row.fanHandle,
         message: row.message,
         fanAvatarUrl: row.avatarUrl,
-        amountCents: row.amountDollars * 100,
+        amountDollars: row.amountDollars,
       }),
     });
     const body = await res.json() as { ok?: boolean; error?: string };
@@ -775,9 +778,9 @@ export default function DashboardPage() {
           </AnimatePresence>
         </motion.section>
 
-        {/* ── SECTION 4b: Manage Seed Fans ─────────────────────────────────── */}
+        {/* ── SECTION 4b: Manage Demo Fans ─────────────────────────────────── */}
         <AnimatePresence>
-          {hasSeedData && editRows.length > 0 && (
+          {analytics.hasSeedData && editRows.length > 0 && (
             <motion.section
               className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden"
               initial={{ opacity: 0, y: 16 }}
@@ -793,9 +796,9 @@ export default function DashboardPage() {
                            hover:bg-slate-800/40 transition-colors"
               >
                 <div>
-                  <h3 className="text-lg font-bold text-white">Manage Seed Fans</h3>
+                  <h3 className="text-lg font-bold text-white">Manage Demo Fans</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {editRows.length} demo fan{editRows.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
+                    {analytics.seedBids.length} demo fan{analytics.seedBids.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
                   </p>
                 </div>
                 <motion.span
@@ -824,16 +827,13 @@ export default function DashboardPage() {
                           key={row.id}
                           className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
                         >
-                          {/* Row 1: Avatar + Handle */}
+                          {/* Avatar + Handle */}
                           <div className="flex items-center gap-3">
-                            <AvatarPicker
-                              fanHandle={row.fanHandle}
-                              value={row.avatarUrl}
-                              onChange={(url) =>
-                                setEditRows((prev) =>
-                                  prev.map((r, i) => i === idx ? { ...r, avatarUrl: url } : r)
-                                )
-                              }
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={row.avatarUrl ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(row.fanHandle || 'fan')}`}
+                              alt={row.fanHandle}
+                              className="w-12 h-12 rounded-full object-cover border-2 border-slate-700 bg-slate-800 flex-shrink-0"
                             />
                             <input
                               type="text"
@@ -850,7 +850,7 @@ export default function DashboardPage() {
                             />
                           </div>
 
-                          {/* Row 2: Message */}
+                          {/* Message */}
                           <input
                             type="text"
                             value={row.message}
@@ -865,7 +865,7 @@ export default function DashboardPage() {
                                        focus:outline-none focus:border-indigo-500/60 transition-colors"
                           />
 
-                          {/* Row 3: Amount + Save */}
+                          {/* Amount + Save */}
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1 bg-slate-900 border border-slate-700
                                             rounded-lg px-3 py-2 flex-shrink-0">
