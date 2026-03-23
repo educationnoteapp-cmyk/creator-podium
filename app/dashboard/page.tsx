@@ -231,11 +231,11 @@ export default function DashboardPage() {
   // Uses /api/podium/bids (supabaseAdmin) to bypass RLS on the bids table.
   // All cent values arrive as raw cents — we divide by 100 only at display time.
   const fetchAnalytics = useCallback(async (cid: string) => {
-    console.log('[dashboard] Fetching analytics for creator_id:', cid);
+    console.log('Fetching analytics for creator:', cid);
 
-    const res = await fetch(`/api/podium/bids?creator_id=${encodeURIComponent(cid)}`);
+    const res = await fetch(`/api/podium/bids?creator_id=${cid}`);
     if (!res.ok) {
-      console.error('[dashboard] Analytics fetch failed:', res.status);
+      console.error('[dashboard] Analytics fetch failed:', res.status, await res.text());
       return;
     }
     const body = await res.json() as {
@@ -247,9 +247,12 @@ export default function DashboardPage() {
       avgCents?: number;
     };
 
+    console.log('Analytics response:', body);
+
     const bids = body.bids ?? [];
-    console.log('[dashboard] totalBids:', body.totalBids, 'totalCents:', body.totalCents,
-      '→ $' + ((body.totalCents ?? 0) / 100).toFixed(2));
+    const hasSeed = bids.some((b) => b.stripe_payment_intent_id.startsWith('seed_'));
+    console.log('Has seed data:', hasSeed, 'bids:', bids.length,
+      bids.map((b) => ({ id: b.id, pi: b.stripe_payment_intent_id })));
 
     setAnalytics({
       totalBids:   body.totalBids  ?? 0,

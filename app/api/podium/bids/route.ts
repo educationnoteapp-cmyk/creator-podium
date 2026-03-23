@@ -13,7 +13,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function GET(req: NextRequest) {
   const creatorId = req.nextUrl.searchParams.get('creator_id');
 
-  console.log('Analytics creator_id:', creatorId);
+  console.log('API called with creator_id:', creatorId);
 
   if (!creatorId || !UUID_RE.test(creatorId)) {
     return NextResponse.json({ error: 'creator_id is required and must be a UUID' }, { status: 400 });

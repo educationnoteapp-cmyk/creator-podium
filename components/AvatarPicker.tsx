@@ -2,38 +2,44 @@
 
 // AvatarPicker.tsx — Avatar selector for bid forms.
 //
-// Two options:
-//   A) Upload a photo  → POST /api/avatar/upload (supabaseAdmin, bypasses anon RLS)
-//   B) Choose a preset → 16 DiceBear avataaars presets (named seeds)
+// Options:
+//   A) Choose a preset → 3 age-group tabs (Kids & Teens, Adults, Seniors)
+//   B) Upload a photo  → POST /api/avatar/upload (supabaseAdmin, bypasses anon RLS)
 //
-// Default avatar auto-generated from fan handle via DiceBear.
-// Shows a circular 48px preview with a 📷 badge to open the modal.
+// Default avatar auto-generated from fan handle via DiceBear avataaars.
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// 52 diverse seeds for DiceBear avataaars
-const PRESET_SEEDS = [
-  'felix',  'aneka',  'bob',    'sara',
-  'mike',   'luna',   'jake',   'emma',
-  'alex',   'zoe',    'max',    'lily',
-  'ryan',   'sofia',  'tom',    'maya',
-  'chris',  'nina',   'david',  'anna',
-  'kevin',  'lisa',   'james',  'kate',
-  'peter',  'amy',    'john',   'mary',
-  'steve',  'grace',  'paul',   'helen',
-  'mark',   'diana',  'eric',   'claire',
-  'adam',   'julia',  'ben',    'alice',
-  'sam',    'olivia', 'joe',    'emma2',
-  'dan',    'sophie', 'rob',    'laura',
-  'tim',    'rachel', 'jim',    'sarah',
-] as const;
+// ── Age-group preset definitions ─────────────────────────────────────────────
+
+// Kids & Teens (6-18) — adventurer style
+const KIDS_SEEDS = Array.from({ length: 20 }, (_, i) => `kid${i + 1}`);
+function kidsUrl(seed: string) {
+  return `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(seed)}`;
+}
+
+// Adults (18-40) — avataaars style
+const ADULT_SEEDS = Array.from({ length: 20 }, (_, i) => `adult${i + 1}`);
+function adultUrl(seed: string) {
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
+}
+
+// Seniors (40+) — personas style
+const SENIOR_SEEDS = Array.from({ length: 12 }, (_, i) => `senior${i + 1}`);
+function seniorUrl(seed: string) {
+  return `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(seed)}`;
+}
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 
-function dicebearUrl(seed: string) {
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
+// Default avatar still uses avataaars (handle-based fallback)
+function defaultDicebear(handle: string) {
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(handle || 'fan')}`;
 }
+
+type PresetTab = 'kids' | 'adults' | 'seniors';
+type ActiveTab = PresetTab | 'upload';
 
 interface AvatarPickerProps {
   /** Current fan handle — used to auto-generate the default avatar. */
@@ -45,20 +51,16 @@ interface AvatarPickerProps {
 
 export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPickerProps) {
   const [isOpen, setIsOpen]             = useState(false);
-  const [activeTab, setActiveTab]       = useState<'preset' | 'upload'>('preset');
+  const [activeTab, setActiveTab]       = useState<ActiveTab>('adults');
   const [uploading, setUploading]       = useState(false);
   const [uploadError, setUploadError]   = useState<string | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const defaultAvatar = dicebearUrl(fanHandle || 'fan');
-  const displayAvatar = value || defaultAvatar;
+  const displayAvatar = value || defaultDicebear(fanHandle);
 
   // ── File upload via server API route ────────────────────────────────────
-  // Direct Supabase Storage upload from the browser fails because the anon
-  // key has no INSERT policy on the avatars bucket. We proxy through
-  // /api/avatar/upload which uses the service-role key.
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -71,7 +73,6 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
       return;
     }
 
-    // Show circular blob: preview immediately (requires blob: in CSP img-src)
     const objectUrl = URL.createObjectURL(file);
     setLocalPreview(objectUrl);
     setUploading(true);
@@ -107,10 +108,19 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
   };
 
   // ── Preset select ────────────────────────────────────────────────────────
-  const handlePreset = (seed: string) => {
-    onChange(dicebearUrl(seed));
+  const handlePreset = (url: string) => {
+    onChange(url);
     setIsOpen(false);
   };
+
+  // ── Tab config ───────────────────────────────────────────────────────────
+  const PRESET_TABS: { id: PresetTab; label: string; seeds: string[]; urlFn: (s: string) => string }[] = [
+    { id: 'kids',    label: 'Kids & Teens', seeds: KIDS_SEEDS,   urlFn: kidsUrl   },
+    { id: 'adults',  label: 'Adults',       seeds: ADULT_SEEDS,  urlFn: adultUrl  },
+    { id: 'seniors', label: 'Seniors',      seeds: SENIOR_SEEDS, urlFn: seniorUrl },
+  ];
+
+  const activePresetTab = PRESET_TABS.find((t) => t.id === activeTab);
 
   return (
     <>
@@ -170,39 +180,44 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                 </button>
               </div>
 
-              {/* Tabs */}
-              <div className="flex gap-2 mb-4 bg-slate-950/60 p-1 rounded-xl">
-                <button
-                  onClick={() => setActiveTab('preset')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors
-                    ${activeTab === 'preset'
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'text-slate-400 hover:text-white'}`}
-                >
-                  Choose Avatar
-                </button>
+              {/* ── Tab bar: Kids & Teens · Adults · Seniors · Upload ─── */}
+              <div className="flex gap-1 mb-4 bg-slate-950/60 p-1 rounded-xl overflow-x-auto">
+                {PRESET_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap
+                      transition-colors px-2
+                      ${activeTab === tab.id
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
                 <button
                   onClick={() => setActiveTab('upload')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap
+                    transition-colors px-2
                     ${activeTab === 'upload'
                       ? 'bg-indigo-600 text-white shadow'
                       : 'text-slate-400 hover:text-white'}`}
                 >
-                  Upload Photo
+                  Upload
                 </button>
               </div>
 
-              {/* ── Preset grid (4-col scrollable) ───────────────────── */}
-              {activeTab === 'preset' && (
+              {/* ── Age-group preset grid ──────────────────────────────── */}
+              {activePresetTab && (
                 <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
-                  {PRESET_SEEDS.map((seed) => {
-                    const url      = dicebearUrl(seed);
+                  {activePresetTab.seeds.map((seed) => {
+                    const url      = activePresetTab.urlFn(seed);
                     const selected = value === url;
                     return (
                       <button
                         key={seed}
                         type="button"
-                        onClick={() => handlePreset(seed)}
+                        onClick={() => handlePreset(url)}
                         className={`aspect-square rounded-xl overflow-hidden border-2 transition-all
                           ${selected
                             ? 'border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)] scale-105'
@@ -223,7 +238,6 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
               {/* ── Upload tab ────────────────────────────────────────── */}
               {activeTab === 'upload' && (
                 <div className="space-y-3">
-                  {/* blob: preview — requires blob: in CSP img-src */}
                   {localPreview && (
                     <div className="flex justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -235,7 +249,6 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                     </div>
                   )}
 
-                  {/* Error */}
                   {uploadError && (
                     <p className="text-xs text-red-400 text-center bg-red-950/40
                                   border border-red-800/40 rounded-lg px-3 py-2">
@@ -243,7 +256,6 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                     </p>
                   )}
 
-                  {/* Hidden file input */}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -252,7 +264,6 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                     onChange={handleFileChange}
                   />
 
-                  {/* Trigger button */}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
