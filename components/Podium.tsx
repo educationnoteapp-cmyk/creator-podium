@@ -8,7 +8,6 @@
 // slide displacement. Screen flash on every new bid event.
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import Image from 'next/image';
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
 import type { Bid } from '@/types';
 
@@ -301,12 +300,11 @@ function SpotCard({ bid, rank, prevBidId }: { bid: Bid | null; rank: 1 | 2 | 3; 
           transition={{ type: 'spring', stiffness: 300 }}
         >
           {bid?.fan_avatar_url ? (
-            <Image
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={bid.fan_avatar_url}
               alt={bid.fan_handle}
-              fill
-              sizes="80px"
-              className="object-cover"
+              className="w-full h-full object-cover"
             />
           ) : (
             <div className={`w-full h-full flex items-center justify-center text-muted ${isKing ? 'text-2xl' : 'text-lg'} font-bold`}>

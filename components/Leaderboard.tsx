@@ -8,7 +8,6 @@
 // Amount changes show smooth count-up animation.
 
 import { useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
 import type { Bid } from '@/types';
 
@@ -101,12 +100,11 @@ function LeaderboardRow({ bid, rank, isNew }: { bid: Bid | null; rank: number; i
         whileHover={{ scale: 1.1, borderColor: '#4F46E5' }}
       >
         {bid?.fan_avatar_url ? (
-          <Image
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={bid.fan_avatar_url}
             alt={bid.fan_handle}
-            fill
-            sizes="36px"
-            className="object-cover"
+            className="w-full h-full object-cover"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted text-sm font-bold">

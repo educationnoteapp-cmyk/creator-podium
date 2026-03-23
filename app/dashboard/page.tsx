@@ -148,6 +148,7 @@ export default function DashboardPage() {
   // Raw bids (for seed editor)
   const [rawBids, setRawBids] = useState<Bid[]>([]);
   const [editRows, setEditRows] = useState<EditRow[]>([]);
+  const [seedEditorOpen, setSeedEditorOpen] = useState(false);
 
   // ── Auth check ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -372,11 +373,12 @@ export default function DashboardPage() {
   const plan = PLAN_CONFIG[planKey] ?? PLAN_CONFIG.starter;
   const savedSlug = creator?.slug ?? '';
 
-  // Show seed editor only when all current bids are seeded demo data
-  const isSeeded =
-    analytics.totalBids > 0 &&
-    rawBids.length > 0 &&
-    rawBids.every((b) => b.stripe_payment_intent_id.startsWith('pi_seed_'));
+  // Show seed editor whenever there are bids; only seeded rows will be editable
+  const showSeedEditor = analytics.totalBids > 0 && rawBids.length > 0;
+  const seededEditRows = editRows.filter((r) => {
+    const bid = rawBids.find((b) => b.id === r.id);
+    return bid?.stripe_payment_intent_id.startsWith('pi_seed_') ?? false;
+  });
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   return (
@@ -763,101 +765,136 @@ export default function DashboardPage() {
 
         {/* ── SECTION 4b: Edit Seed Data ────────────────────────────────────── */}
         <AnimatePresence>
-          {isSeeded && editRows.length > 0 && (
+          {showSeedEditor && seededEditRows.length > 0 && (
             <motion.section
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <div>
-                <h3 className="text-lg font-bold text-white">Edit Seed Data</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Customise your 10 demo fans</p>
-              </div>
+              {/* Collapsible header */}
+              <button
+                type="button"
+                onClick={() => setSeedEditorOpen((o) => !o)}
+                className="w-full flex items-center justify-between p-6 text-left
+                           hover:bg-slate-800/40 transition-colors"
+              >
+                <div>
+                  <h3 className="text-lg font-bold text-white">Edit Seed Data</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {seededEditRows.length} demo fan{seededEditRows.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
+                  </p>
+                </div>
+                <motion.span
+                  animate={{ rotate: seedEditorOpen ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="text-slate-500 text-lg flex-shrink-0"
+                >
+                  ▾
+                </motion.span>
+              </button>
 
-              <div className="space-y-3">
-                {editRows.map((row, idx) => (
-                  <div
-                    key={row.id}
-                    className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+              {/* Collapsible body */}
+              <AnimatePresence initial={false}>
+                {seedEditorOpen && (
+                  <motion.div
+                    key="seed-editor-body"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    className="overflow-hidden"
                   >
-                    {/* Handle + avatar row */}
-                    <div className="flex items-center gap-3">
-                      <AvatarPicker
-                        fanHandle={row.fanHandle}
-                        value={row.avatarUrl}
-                        onChange={(url) =>
-                          setEditRows((prev) =>
-                            prev.map((r, i) => i === idx ? { ...r, avatarUrl: url } : r)
-                          )
-                        }
-                      />
-                      <input
-                        type="text"
-                        value={row.fanHandle}
-                        onChange={(e) =>
-                          setEditRows((prev) =>
-                            prev.map((r, i) => i === idx ? { ...r, fanHandle: e.target.value } : r)
-                          )
-                        }
-                        placeholder="Fan handle"
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                   text-sm text-white placeholder:text-slate-600
-                                   focus:outline-none focus:border-indigo-500/60 transition-colors"
-                      />
-                    </div>
+                    <div className="px-6 pb-6 space-y-3">
+                      {seededEditRows.map((row) => {
+                        // Find the global index in editRows so handleSaveRow targets the right slot
+                        const globalIdx = editRows.findIndex((r) => r.id === row.id);
+                        return (
+                          <div
+                            key={row.id}
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+                          >
+                            {/* Handle + avatar row */}
+                            <div className="flex items-center gap-3">
+                              <AvatarPicker
+                                fanHandle={row.fanHandle}
+                                value={row.avatarUrl}
+                                onChange={(url) =>
+                                  setEditRows((prev) =>
+                                    prev.map((r, i) => i === globalIdx ? { ...r, avatarUrl: url } : r)
+                                  )
+                                }
+                              />
+                              <input
+                                type="text"
+                                value={row.fanHandle}
+                                onChange={(e) =>
+                                  setEditRows((prev) =>
+                                    prev.map((r, i) => i === globalIdx ? { ...r, fanHandle: e.target.value } : r)
+                                  )
+                                }
+                                placeholder="Fan handle"
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                           text-sm text-white placeholder:text-slate-600
+                                           focus:outline-none focus:border-indigo-500/60 transition-colors"
+                              />
+                            </div>
 
-                    {/* Message + save row */}
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={row.message}
-                        onChange={(e) =>
-                          setEditRows((prev) =>
-                            prev.map((r, i) => i === idx ? { ...r, message: e.target.value } : r)
-                          )
-                        }
-                        placeholder="Message"
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                   text-sm text-white placeholder:text-slate-600
-                                   focus:outline-none focus:border-indigo-500/60 transition-colors"
-                      />
-                      <motion.button
-                        onClick={() => handleSaveRow(idx)}
-                        disabled={row.saving}
-                        className="px-4 py-2 rounded-lg font-semibold text-xs
-                                   bg-indigo-600 hover:bg-indigo-500 text-white
-                                   disabled:opacity-50 transition-colors flex-shrink-0"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.97 }}
-                      >
-                        {row.saving ? (
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            Saving…
-                          </span>
-                        ) : 'Save'}
-                      </motion.button>
-                    </div>
+                            {/* Message + save row */}
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={row.message}
+                                onChange={(e) =>
+                                  setEditRows((prev) =>
+                                    prev.map((r, i) => i === globalIdx ? { ...r, message: e.target.value } : r)
+                                  )
+                                }
+                                placeholder="Message"
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                           text-sm text-white placeholder:text-slate-600
+                                           focus:outline-none focus:border-indigo-500/60 transition-colors"
+                              />
+                              <motion.button
+                                onClick={() => handleSaveRow(globalIdx)}
+                                disabled={row.saving}
+                                className="px-4 py-2 rounded-lg font-semibold text-xs
+                                           bg-indigo-600 hover:bg-indigo-500 text-white
+                                           disabled:opacity-50 transition-colors flex-shrink-0"
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.97 }}
+                              >
+                                {row.saving ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    Saving…
+                                  </span>
+                                ) : 'Save'}
+                              </motion.button>
+                            </div>
 
-                    {/* Per-row save feedback */}
-                    <AnimatePresence>
-                      {row.saveMsg && (
-                        <motion.p
-                          key="save-msg"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
-                        >
-                          {row.saveMsg}
-                        </motion.p>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ))}
-              </div>
+                            {/* Per-row save feedback */}
+                            <AnimatePresence>
+                              {row.saveMsg && (
+                                <motion.p
+                                  key="save-msg"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  exit={{ opacity: 0 }}
+                                  className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
+                                >
+                                  {row.saveMsg}
+                                </motion.p>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.section>
           )}
         </AnimatePresence>

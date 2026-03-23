@@ -31,11 +31,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Amounts are stored in cents; divide by 100 before returning
-  const normalizedBids = (bids ?? []).map((b) => ({
-    ...b,
-    amount_paid: b.amount_paid / 100,
-  }));
-
-  return NextResponse.json({ bids: normalizedBids });
+  // Return raw cents — callers (RollingNumber, AnimatedAmount) divide by 100 themselves
+  return NextResponse.json({ bids: bids ?? [] });
 }
