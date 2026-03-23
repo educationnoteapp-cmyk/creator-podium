@@ -17,12 +17,8 @@ import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
-import { env } from '@/lib/env';
 
-// Validate env at import time
-void env;
-
-const STRIPE_CLIENT_ID      = process.env.STRIPE_CLIENT_ID!;
+const STRIPE_CLIENT_ID = process.env.STRIPE_CLIENT_ID;
 const STRIPE_CONNECT_SCOPES = 'read_write';
 
 // Validation patterns
@@ -31,6 +27,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STRIPE_CODE_RE = /^ac_[a-zA-Z0-9]+$/;
 
 export async function GET(req: NextRequest) {
+  // ── Check Stripe is configured ────────────────────────────────────────────
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_CLIENT_ID) {
+    return NextResponse.redirect(
+      `${req.nextUrl.origin}/dashboard?stripe_connect=error&reason=not_configured`
+    );
+  }
+
   // ── Rate limit: 3 requests per IP per minute ─────────────────────────────
   const ip = getClientIp(req.headers);
   const rl = await rateLimit(`stripe-connect:${ip}`, 3, 10_000);

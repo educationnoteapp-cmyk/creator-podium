@@ -81,7 +81,7 @@ const PLAN_CONFIG: Record<string, {
     badgeClass: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
     dotClass: 'bg-yellow-400',
     headline: '0% Platform Fee — Forever',
-    body: 'You are one of our 10 founding creators. 100% of every payment goes directly to you.',
+    body: 'You are in our Launch Cohort 🎉 — one of our founding creators. 100% of every payment goes directly to you.',
     showUpgrade: false,
   },
   pro: {
@@ -97,8 +97,8 @@ const PLAN_CONFIG: Record<string, {
     badgeClass: 'text-slate-400 bg-slate-700/40 border-slate-600/40',
     dotClass: 'bg-slate-400',
     headline: '15% Platform Fee',
-    body: 'Upgrade to Pro to keep 100% of every payment.',
-    showUpgrade: true,
+    body: 'You are on the Starter plan. More features coming soon.',
+    showUpgrade: false,
   },
 };
 
@@ -156,7 +156,10 @@ export default function DashboardPage() {
       setStripeConnectMsg({ type: 'warn', text: 'Stripe connection cancelled.' });
     } else if (result === 'error') {
       const reason = params.get('reason') ?? 'unknown';
-      setStripeConnectMsg({ type: 'err', text: `Connection failed: ${reason}` });
+      const friendlyMsg = reason === 'not_configured'
+        ? 'Stripe payments are not configured yet — coming soon!'
+        : `Connection failed: ${reason}`;
+      setStripeConnectMsg({ type: 'warn', text: friendlyMsg });
     }
     // Clean up URL without reload
     const url = new URL(window.location.href);
@@ -464,7 +467,7 @@ export default function DashboardPage() {
           <div className="bg-slate-950/60 rounded-xl px-4 py-3 border border-slate-800/70">
             <span className="text-xs text-slate-500">Your page: </span>
             <span className="text-sm font-mono">
-              <span className="text-slate-600">creatorpodium.com/</span>
+              <span className="text-slate-600">creator-podium.vercel.app/</span>
               <span className={`font-bold ${cleanSlug(slug).length >= 3 ? 'text-indigo-400' : 'text-slate-600'}`}>
                 {slug ? cleanSlug(slug) : '…'}
               </span>

@@ -21,29 +21,47 @@ const FAKE_FANS = [
 ];
 
 export async function POST() {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  console.log('[seed] POST /api/dashboard/seed called');
 
-  if (!session) {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    console.error('[seed] Auth failed:', authError?.message);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  console.log('[seed] Authenticated user:', user.id);
+
   // Look up the creator row for this user
-  const { data: creator } = await supabaseAdmin
+  const { data: creator, error: creatorError } = await supabaseAdmin
     .from('creators')
     .select('id')
-    .eq('auth_user_id', session.user.id)
+    .eq('auth_user_id', user.id)
     .maybeSingle();
 
-  if (!creator) {
-    return NextResponse.json({ error: 'Creator not found' }, { status: 404 });
+  if (creatorError) {
+    console.error('[seed] Creator lookup error:', creatorError.message);
+    return NextResponse.json({ error: creatorError.message }, { status: 500 });
   }
 
+  if (!creator) {
+    console.error('[seed] No creator row for user:', user.id);
+    return NextResponse.json({ error: 'Creator not found — save your URL first' }, { status: 404 });
+  }
+
+  console.log('[seed] Found creator:', creator.id);
+
   // Guard: only seed an empty podium
-  const { count } = await supabaseAdmin
+  const { count, error: countError } = await supabaseAdmin
     .from('bids')
     .select('id', { count: 'exact', head: true })
     .eq('creator_id', creator.id);
+
+  if (countError) {
+    console.error('[seed] Count error:', countError.message);
+    return NextResponse.json({ error: countError.message }, { status: 500 });
+  }
 
   if ((count ?? 0) > 0) {
     return NextResponse.json(
@@ -61,11 +79,13 @@ export async function POST() {
     stripe_payment_intent_id: `pi_seed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
   }));
 
-  const { error } = await supabaseAdmin.from('bids').insert(rows);
+  const { error: insertError } = await supabaseAdmin.from('bids').insert(rows);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (insertError) {
+    console.error('[seed] Insert error:', insertError.message);
+    return NextResponse.json({ error: insertError.message }, { status: 400 });
   }
 
+  console.log('[seed] Seeded', rows.length, 'bids for creator:', creator.id);
   return NextResponse.json({ ok: true });
 }

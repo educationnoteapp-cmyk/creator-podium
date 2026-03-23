@@ -13,12 +13,17 @@ import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  console.log('[creator] POST /api/dashboard/creator called');
 
-  if (!session) {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    console.error('[creator] Auth failed:', authError?.message);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  console.log('[creator] Authenticated user:', user.id);
 
   const body = await req.json() as { slug?: string };
   const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
@@ -27,20 +32,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'slug is required' }, { status: 400 });
   }
 
+  console.log('[creator] Upserting slug:', slug, 'for user:', user.id);
+
   // Upsert: insert on first login, update slug on subsequent saves.
   // creators_auth_user_id_idx is a unique index so ON CONFLICT works correctly.
   const { data: creator, error } = await supabaseAdmin
     .from('creators')
     .upsert(
-      { auth_user_id: session.user.id, slug },
+      { auth_user_id: user.id, slug },
       { onConflict: 'auth_user_id' },
     )
     .select()
     .single();
 
   if (error) {
+    console.error('[creator] Upsert error:', error.message, error.code);
     return NextResponse.json({ error }, { status: 400 });
   }
 
+  console.log('[creator] Upserted creator:', creator.id);
   return NextResponse.json({ creator });
 }
