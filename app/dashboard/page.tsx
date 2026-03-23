@@ -44,10 +44,11 @@ function RollingCount({ value, className }: { value: number; className?: string 
 // ── Types ───────────────────────────────────────────────────────────────────
 interface Analytics {
   totalBids: number;
-  totalCents: number;   // raw cents from DB — divide by 100 to display
-  kingCents: number;    // raw cents
+  totalCents: number;     // raw cents — divide by 100 to display
+  kingCents: number;      // raw cents
   kingHandle: string | null;
-  avgCents: number;     // raw cents
+  avgCents: number;       // raw cents
+  hasSeedData: boolean;   // true if any bid has seed_ prefix
 }
 
 interface EditRow {
@@ -55,6 +56,7 @@ interface EditRow {
   fanHandle: string;
   message: string;
   avatarUrl: string | null;
+  amountDollars: number;  // dollars (integer), converted to cents when saving
   saving: boolean;
   saveMsg: string | null;
 }
@@ -141,14 +143,16 @@ export default function DashboardPage() {
     kingCents: 0,
     kingHandle: null,
     avgCents: 0,
+    hasSeedData: false,
   });
 
   // Seeding
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
 
-  // Raw bids (for seed editor)
+  // Raw bids (top-10 for podium display) + seed bids for the editor
   const [rawBids, setRawBids] = useState<Bid[]>([]);
+  const [seedBids, setSeedBids] = useState<Bid[]>([]);
   const [editRows, setEditRows] = useState<EditRow[]>([]);
   const [seedEditorOpen, setSeedEditorOpen] = useState(false);
 
@@ -229,6 +233,7 @@ export default function DashboardPage() {
 
   // ── Analytics ──────────────────────────────────────────────────────────────
   // Uses /api/podium/bids (supabaseAdmin) to bypass RLS on the bids table.
+  // API makes two queries: allBids (for correct totals) + top10 (for display).
   // All cent values arrive as raw cents — we divide by 100 only at display time.
   const fetchAnalytics = useCallback(async (cid: string) => {
     console.log('Fetching analytics for creator:', cid);
@@ -240,46 +245,48 @@ export default function DashboardPage() {
     }
     const body = await res.json() as {
       bids?: Bid[];
+      seedBids?: Bid[];
       totalBids?: number;
       totalCents?: number;
       kingCents?: number;
       kingHandle?: string | null;
       avgCents?: number;
+      hasSeedData?: boolean;
     };
 
     console.log('Analytics response:', body);
-
-    const bids = body.bids ?? [];
-    const hasSeed = bids.some((b) => b.stripe_payment_intent_id.startsWith('seed_'));
-    console.log('Has seed data:', hasSeed, 'bids:', bids.length,
-      bids.map((b) => ({ id: b.id, pi: b.stripe_payment_intent_id })));
+    console.log('Has seed data:', body.hasSeedData, 'seedBids:', body.seedBids?.length,
+      body.seedBids?.map((b) => ({ id: b.id, pi: b.stripe_payment_intent_id })));
 
     setAnalytics({
-      totalBids:   body.totalBids  ?? 0,
-      totalCents:  body.totalCents ?? 0,
-      kingCents:   body.kingCents  ?? 0,
-      kingHandle:  body.kingHandle ?? null,
-      avgCents:    body.avgCents   ?? 0,
+      totalBids:   body.totalBids   ?? 0,
+      totalCents:  body.totalCents  ?? 0,
+      kingCents:   body.kingCents   ?? 0,
+      kingHandle:  body.kingHandle  ?? null,
+      avgCents:    body.avgCents    ?? 0,
+      hasSeedData: body.hasSeedData ?? false,
     });
-    setRawBids(bids);
+    setRawBids(body.bids ?? []);
+    setSeedBids(body.seedBids ?? []);
   }, []);
 
   useEffect(() => {
     if (creator?.id) fetchAnalytics(creator.id);
   }, [creator?.id, fetchAnalytics]);
 
-  // ── Init edit rows from raw bids ───────────────────────────────────────────
+  // ── Init edit rows from seedBids (populated by API, no top-10 limit) ────────
   useEffect(() => {
-    if (rawBids.length === 0) return;
-    setEditRows(rawBids.map((b) => ({
+    if (seedBids.length === 0) { setEditRows([]); return; }
+    setEditRows(seedBids.map((b) => ({
       id: b.id,
       fanHandle: b.fan_handle,
       message: b.message ?? '',
       avatarUrl: b.fan_avatar_url,
+      amountDollars: Math.round(b.amount_paid / 100),
       saving: false,
       saveMsg: null,
     })));
-  }, [rawBids]);
+  }, [seedBids]);
 
   // ── Save seeded row ─────────────────────────────────────────────────────────
   const handleSaveRow = async (rowIdx: number) => {
@@ -294,6 +301,7 @@ export default function DashboardPage() {
         fanHandle: row.fanHandle,
         message: row.message,
         fanAvatarUrl: row.avatarUrl,
+        amountCents: row.amountDollars * 100,
       }),
     });
     const body = await res.json() as { ok?: boolean; error?: string };
@@ -384,14 +392,8 @@ export default function DashboardPage() {
   const plan = PLAN_CONFIG[planKey] ?? PLAN_CONFIG.starter;
   const savedSlug = creator?.slug ?? '';
 
-  // Show "Manage Seed Fans" only when at least one seeded bid exists (seed_ prefix)
-  const hasSeedData = rawBids.some((b) => b.stripe_payment_intent_id.startsWith('seed_'));
-
-  // Helper: is this edit-row a seeded bid?
-  const isSeededRow = (rowId: string) => {
-    const bid = rawBids.find((b) => b.id === rowId);
-    return bid?.stripe_payment_intent_id.startsWith('seed_') ?? false;
-  };
+  // hasSeedData comes directly from the API (computed over ALL bids, not just top-10)
+  const hasSeedData = analytics.hasSeedData;
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   return (
@@ -793,13 +795,7 @@ export default function DashboardPage() {
                 <div>
                   <h3 className="text-lg font-bold text-white">Manage Seed Fans</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {editRows.filter((r) => isSeededRow(r.id)).length} demo fans editable
-                    {editRows.filter((r) => !isSeededRow(r.id)).length > 0 && (
-                      <span className="text-amber-500/70">
-                        {' '}· {editRows.filter((r) => !isSeededRow(r.id)).length} real fan{editRows.filter((r) => !isSeededRow(r.id)).length !== 1 ? 's' : ''} locked
-                      </span>
-                    )}
-                    {' '}— click to {seedEditorOpen ? 'collapse' : 'expand'}
+                    {editRows.length} demo fan{editRows.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
                   </p>
                 </div>
                 <motion.span
@@ -823,120 +819,111 @@ export default function DashboardPage() {
                     className="overflow-hidden"
                   >
                     <div className="px-6 pb-6 space-y-3">
-                      {editRows.map((row, globalIdx) => {
-                        const seeded = isSeededRow(row.id);
-                        return seeded ? (
-                          /* ── Editable seeded fan row ── */
-                          <div
-                            key={row.id}
-                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
-                          >
-                            {/* Handle + avatar */}
-                            <div className="flex items-center gap-3">
-                              <AvatarPicker
-                                fanHandle={row.fanHandle}
-                                value={row.avatarUrl}
-                                onChange={(url) =>
-                                  setEditRows((prev) =>
-                                    prev.map((r, i) => i === globalIdx ? { ...r, avatarUrl: url } : r)
-                                  )
-                                }
-                              />
+                      {editRows.map((row, idx) => (
+                        <div
+                          key={row.id}
+                          className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+                        >
+                          {/* Row 1: Avatar + Handle */}
+                          <div className="flex items-center gap-3">
+                            <AvatarPicker
+                              fanHandle={row.fanHandle}
+                              value={row.avatarUrl}
+                              onChange={(url) =>
+                                setEditRows((prev) =>
+                                  prev.map((r, i) => i === idx ? { ...r, avatarUrl: url } : r)
+                                )
+                              }
+                            />
+                            <input
+                              type="text"
+                              value={row.fanHandle}
+                              onChange={(e) =>
+                                setEditRows((prev) =>
+                                  prev.map((r, i) => i === idx ? { ...r, fanHandle: e.target.value } : r)
+                                )
+                              }
+                              placeholder="Fan handle"
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                         text-sm text-white placeholder:text-slate-600
+                                         focus:outline-none focus:border-indigo-500/60 transition-colors"
+                            />
+                          </div>
+
+                          {/* Row 2: Message */}
+                          <input
+                            type="text"
+                            value={row.message}
+                            onChange={(e) =>
+                              setEditRows((prev) =>
+                                prev.map((r, i) => i === idx ? { ...r, message: e.target.value } : r)
+                              )
+                            }
+                            placeholder="Message"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                       text-sm text-white placeholder:text-slate-600
+                                       focus:outline-none focus:border-indigo-500/60 transition-colors"
+                          />
+
+                          {/* Row 3: Amount + Save */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 bg-slate-900 border border-slate-700
+                                            rounded-lg px-3 py-2 flex-shrink-0">
+                              <span className="text-slate-500 text-sm">$</span>
                               <input
-                                type="text"
-                                value={row.fanHandle}
-                                onChange={(e) =>
+                                type="number"
+                                min={5}
+                                max={50}
+                                step={1}
+                                value={row.amountDollars}
+                                onChange={(e) => {
+                                  const v = Math.max(5, Math.min(50, parseInt(e.target.value, 10) || 5));
                                   setEditRows((prev) =>
-                                    prev.map((r, i) => i === globalIdx ? { ...r, fanHandle: e.target.value } : r)
-                                  )
-                                }
-                                placeholder="Fan handle"
-                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                           text-sm text-white placeholder:text-slate-600
-                                           focus:outline-none focus:border-indigo-500/60 transition-colors"
+                                    prev.map((r, i) => i === idx ? { ...r, amountDollars: v } : r)
+                                  );
+                                }}
+                                className="w-14 bg-transparent text-sm text-white text-center
+                                           focus:outline-none [appearance:textfield]
+                                           [&::-webkit-outer-spin-button]:appearance-none
+                                           [&::-webkit-inner-spin-button]:appearance-none"
                               />
                             </div>
+                            <span className="text-[10px] text-slate-600 flex-shrink-0">$5–$50</span>
+                            <div className="flex-1" />
+                            <motion.button
+                              onClick={() => handleSaveRow(idx)}
+                              disabled={row.saving}
+                              className="px-4 py-2 rounded-lg font-semibold text-xs
+                                         bg-indigo-600 hover:bg-indigo-500 text-white
+                                         disabled:opacity-50 transition-colors flex-shrink-0"
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.97 }}
+                            >
+                              {row.saving ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  Saving…
+                                </span>
+                              ) : 'Save'}
+                            </motion.button>
+                          </div>
 
-                            {/* Message + save */}
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={row.message}
-                                onChange={(e) =>
-                                  setEditRows((prev) =>
-                                    prev.map((r, i) => i === globalIdx ? { ...r, message: e.target.value } : r)
-                                  )
-                                }
-                                placeholder="Message"
-                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                           text-sm text-white placeholder:text-slate-600
-                                           focus:outline-none focus:border-indigo-500/60 transition-colors"
-                              />
-                              <motion.button
-                                onClick={() => handleSaveRow(globalIdx)}
-                                disabled={row.saving}
-                                className="px-4 py-2 rounded-lg font-semibold text-xs
-                                           bg-indigo-600 hover:bg-indigo-500 text-white
-                                           disabled:opacity-50 transition-colors flex-shrink-0"
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.97 }}
+                          {/* Per-row feedback */}
+                          <AnimatePresence>
+                            {row.saveMsg && (
+                              <motion.p
+                                key="save-msg"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
                               >
-                                {row.saving ? (
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    Saving…
-                                  </span>
-                                ) : 'Save'}
-                              </motion.button>
-                            </div>
-
-                            {/* Per-row feedback */}
-                            <AnimatePresence>
-                              {row.saveMsg && (
-                                <motion.p
-                                  key="save-msg"
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                  exit={{ opacity: 0 }}
-                                  className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
-                                >
-                                  {row.saveMsg}
-                                </motion.p>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        ) : (
-                          /* ── Locked real fan row ── */
-                          <div
-                            key={row.id}
-                            className="bg-slate-950/50 border border-slate-800/50 rounded-xl p-3
-                                       opacity-50 cursor-not-allowed"
-                          >
-                            <div className="flex items-center gap-3">
-                              {/* Static avatar placeholder */}
-                              <div className="w-12 h-12 rounded-full bg-slate-800 border-2 border-slate-700
-                                              flex items-center justify-center flex-shrink-0">
-                                <span className="text-slate-500 text-lg font-bold">
-                                  {row.fanHandle.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-bold text-slate-400 block truncate">
-                                  {row.fanHandle}
-                                </span>
-                                <span className="text-xs text-amber-500/70 font-medium">
-                                  Real fan — cannot edit
-                                </span>
-                              </div>
-                            </div>
-                            {row.message && (
-                              <p className="text-xs text-slate-600 mt-2 italic truncate pl-15">
-                                &ldquo;{row.message}&rdquo;
-                              </p>
+                                {row.saveMsg}
+                              </motion.p>
                             )}
-                          </div>
-                        );
-                      })}
+                          </AnimatePresence>
+                        </div>
+                      ))}
                     </div>
                   </motion.div>
                 )}

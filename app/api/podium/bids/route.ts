@@ -1,9 +1,12 @@
 // GET /api/podium/bids?creator_id=<uuid>
 //
-// Returns the top 10 bids for a creator plus pre-computed analytics aggregates.
-// All cent values are RAW CENTS from the DB — callers divide by 100 for display.
-// Uses supabaseAdmin (service role) to bypass RLS — the bids table has no
-// anonymous SELECT policy.
+// Returns:
+//   - bids: top-10 rows for podium display (ordered by amount_paid DESC)
+//   - Analytics aggregates computed from ALL bids (no limit) so totals are correct
+//   - hasSeedData + seedBids so the dashboard seed editor can be populated
+//
+// All cent values are RAW CENTS — callers divide by 100 for display.
+// Uses supabaseAdmin (service role) to bypass RLS.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -19,35 +22,52 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'creator_id is required and must be a UUID' }, { status: 400 });
   }
 
-  const { data: bids, error } = await supabaseAdmin
+  // ── Query 1: ALL bids for correct analytics (no LIMIT) ───────────────────
+  const { data: allBids, error: allError } = await supabaseAdmin
+    .from('bids')
+    .select('id, amount_paid, fan_handle, fan_avatar_url, message, stripe_payment_intent_id, created_at')
+    .eq('creator_id', creatorId);
+
+  if (allError) {
+    console.error('[podium/bids] allBids fetch error:', allError.message);
+    return NextResponse.json({ error: allError.message }, { status: 500 });
+  }
+
+  // ── Query 2: top-10 full rows for podium display ──────────────────────────
+  const { data: top10, error: top10Error } = await supabaseAdmin
     .from('bids')
     .select('*')
     .eq('creator_id', creatorId)
     .order('amount_paid', { ascending: false })
     .limit(10);
 
-  if (error) {
-    console.error('[podium/bids] Fetch error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (top10Error) {
+    console.error('[podium/bids] top10 fetch error:', top10Error.message);
+    return NextResponse.json({ error: top10Error.message }, { status: 500 });
   }
 
-  const rows = bids ?? [];
+  const rows      = allBids ?? [];
+  const totalBids = rows.length;
+  const totalCents = rows.reduce((sum, b) => sum + b.amount_paid, 0);
+  const kingBid   = rows.length > 0
+    ? rows.reduce((max, b) => (b.amount_paid > max.amount_paid ? b : max), rows[0])
+    : null;
+  const avgCents  = totalBids > 0 ? Math.round(totalCents / totalBids) : 0;
 
-  // Pre-compute analytics — all values in raw cents so callers divide once
-  const totalBids   = rows.length;
-  const totalCents  = rows.reduce((s, b) => s + b.amount_paid, 0);
-  const kingCents   = rows[0]?.amount_paid ?? 0;       // already sorted DESC
-  const kingHandle  = rows[0]?.fan_handle ?? null;
-  const avgCents    = totalBids > 0 ? Math.round(totalCents / totalBids) : 0;
+  const seedBids    = rows.filter((b) => b.stripe_payment_intent_id?.startsWith('seed_'));
+  const hasSeedData = seedBids.length > 0;
 
-  console.log('[podium/bids] totalBids:', totalBids, 'totalCents:', totalCents, 'kingCents:', kingCents);
+  console.log('[podium/bids] totalBids:', totalBids, 'totalCents:', totalCents,
+    'kingCents:', kingBid?.amount_paid, 'hasSeedData:', hasSeedData, 'seedBids:', seedBids.length);
 
   return NextResponse.json({
-    bids: rows,        // full rows — used by public podium page realtime re-fetch
-    totalBids,
-    totalCents,
-    kingCents,
-    kingHandle,
+    bids:        top10 ?? [],   // top-10 for podium display + realtime re-fetch
+    totalBids,                  // count of ALL bids
+    totalCents,                 // raw cents sum of ALL bids — NO division
+    kingCents:   kingBid?.amount_paid ?? 0,
+    kingHandle:  kingBid?.fan_handle  ?? '',
     avgCents,
+    hasSeedData,
+    seedBids,                   // all seeded bids (for seed editor)
   });
 }

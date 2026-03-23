@@ -1,8 +1,11 @@
 // POST /api/dashboard/seed/edit
 //
-// Updates a single seeded bid's fan_handle, message, and fan_avatar_url.
-// Only works on bids whose stripe_payment_intent_id starts with "seed_".
-// Also syncs the matching row in podium_spots (if one exists).
+// Updates a seeded bid's fan_handle, message, fan_avatar_url, and optionally
+// amount_paid (in cents).  Only seeded bids (stripe_payment_intent_id starts
+// with "seed_") may be edited.
+//
+// When amount_paid changes the podium_spots table is rebuilt from scratch so
+// the leaderboard positions stay correct.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
@@ -24,12 +27,20 @@ export async function POST(request: NextRequest) {
       fanHandle?: string;
       message?: string;
       fanAvatarUrl?: string | null;
+      amountCents?: number;
     };
 
-    const { bidId, fanHandle, message, fanAvatarUrl } = body;
+    const { bidId, fanHandle, message, fanAvatarUrl, amountCents } = body;
 
     if (!bidId) {
       return NextResponse.json({ error: 'bidId is required' }, { status: 400 });
+    }
+
+    // Validate amountCents if provided ($5–$50)
+    if (amountCents !== undefined) {
+      if (!Number.isInteger(amountCents) || amountCents < 500 || amountCents > 5000) {
+        return NextResponse.json({ error: 'Amount must be between $5 and $50' }, { status: 400 });
+      }
     }
 
     // Resolve creator for this user
@@ -49,7 +60,7 @@ export async function POST(request: NextRequest) {
     // Verify the bid belongs to this creator
     const { data: bid, error: bidError } = await supabaseAdmin
       .from('bids')
-      .select('id, stripe_payment_intent_id')
+      .select('id, stripe_payment_intent_id, amount_paid')
       .eq('id', bidId)
       .eq('creator_id', creator.id)
       .maybeSingle();
@@ -61,21 +72,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
     }
 
-    // Guard: only allow editing seeded bids (identified by seed_ prefix)
+    // Guard: only allow editing seeded bids
     if (!bid.stripe_payment_intent_id.startsWith('seed_')) {
       return NextResponse.json({ error: 'Can only edit seeded bids' }, { status: 403 });
     }
 
-    const updates = {
-      fan_handle: fanHandle ?? '',
-      message: message ?? null,
+    // Build the update payload
+    const bidUpdates: Record<string, unknown> = {
+      fan_handle:    fanHandle    ?? '',
+      message:       message      ?? null,
       fan_avatar_url: fanAvatarUrl ?? null,
     };
 
-    // Update bids table
+    const amountChanged = amountCents !== undefined && amountCents !== bid.amount_paid;
+    if (amountChanged) {
+      bidUpdates.amount_paid = amountCents;
+    }
+
+    // ── Update bids table ─────────────────────────────────────────────────
     const { error: bidUpdateError } = await supabaseAdmin
       .from('bids')
-      .update(updates)
+      .update(bidUpdates)
       .eq('id', bidId);
 
     if (bidUpdateError) {
@@ -83,18 +100,55 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: bidUpdateError.message }, { status: 500 });
     }
 
-    // Sync podium_spots if a matching row exists (best-effort, no error on miss)
-    const { error: spotError } = await supabaseAdmin
-      .from('podium_spots')
-      .update(updates)
-      .eq('stripe_payment_intent_id', bid.stripe_payment_intent_id)
-      .eq('creator_id', creator.id);
+    // ── Rebuild podium_spots ──────────────────────────────────────────────
+    // Always rebuild after any seed edit so positions stay consistent.
+    const { data: allBids, error: fetchError } = await supabaseAdmin
+      .from('bids')
+      .select('id, fan_handle, fan_avatar_url, message, amount_paid, stripe_payment_intent_id')
+      .eq('creator_id', creator.id)
+      .order('amount_paid', { ascending: false });
 
-    if (spotError) {
-      console.warn('[seed/edit] podium_spots update skipped:', spotError.message);
+    if (fetchError) {
+      console.error('[seed/edit] Fetch-all-bids error:', fetchError.message);
+      // Non-fatal: bid is updated, podium rebuild failed
+      return NextResponse.json({ ok: true, warn: 'Bid saved but podium not rebuilt' });
     }
 
-    console.log('[seed/edit] Updated bid:', bidId);
+    // Delete old podium_spots for this creator
+    const { error: deleteError } = await supabaseAdmin
+      .from('podium_spots')
+      .delete()
+      .eq('creator_id', creator.id);
+
+    if (deleteError) {
+      console.error('[seed/edit] Delete podium_spots error:', deleteError.message);
+      return NextResponse.json({ ok: true, warn: 'Bid saved but podium not rebuilt' });
+    }
+
+    // Re-insert top-10 as new podium_spots (position 1 = highest bid)
+    const top10 = (allBids ?? []).slice(0, 10);
+    if (top10.length > 0) {
+      const spots = top10.map((b, idx) => ({
+        creator_id:               creator.id,
+        position:                 idx + 1,
+        fan_handle:               b.fan_handle,
+        fan_avatar_url:           b.fan_avatar_url,
+        message:                  b.message,
+        amount_paid:              b.amount_paid,
+        stripe_payment_intent_id: b.stripe_payment_intent_id,
+      }));
+
+      const { error: insertError } = await supabaseAdmin
+        .from('podium_spots')
+        .insert(spots);
+
+      if (insertError) {
+        console.error('[seed/edit] podium_spots insert error:', insertError.message);
+        return NextResponse.json({ ok: true, warn: 'Bid saved but podium not rebuilt' });
+      }
+    }
+
+    console.log('[seed/edit] Updated bid:', bidId, amountChanged ? `(amount → ${amountCents} cents)` : '');
     return NextResponse.json({ ok: true });
 
   } catch (err) {
