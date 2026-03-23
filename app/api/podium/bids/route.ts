@@ -13,6 +13,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function GET(req: NextRequest) {
   const creatorId = req.nextUrl.searchParams.get('creator_id');
 
+  console.log('Analytics creator_id:', creatorId);
+
   if (!creatorId || !UUID_RE.test(creatorId)) {
     return NextResponse.json({ error: 'creator_id is required and must be a UUID' }, { status: 400 });
   }
@@ -29,5 +31,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ bids: bids ?? [] });
+  // Amounts are stored in cents; divide by 100 before returning
+  const normalizedBids = (bids ?? []).map((b) => ({
+    ...b,
+    amount_paid: b.amount_paid / 100,
+  }));
+
+  return NextResponse.json({ bids: normalizedBids });
 }

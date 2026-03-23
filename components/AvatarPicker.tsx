@@ -12,12 +12,21 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// 16 named seeds for more visual variety
+// 52 diverse seeds for DiceBear avataaars
 const PRESET_SEEDS = [
-  'felix', 'aneka', 'bob',  'sara',
-  'mike',  'luna',  'jake', 'emma',
-  'alex',  'zoe',   'max',  'lily',
-  'ryan',  'sofia', 'tom',  'maya',
+  'felix',  'aneka',  'bob',    'sara',
+  'mike',   'luna',   'jake',   'emma',
+  'alex',   'zoe',    'max',    'lily',
+  'ryan',   'sofia',  'tom',    'maya',
+  'chris',  'nina',   'david',  'anna',
+  'kevin',  'lisa',   'james',  'kate',
+  'peter',  'amy',    'john',   'mary',
+  'steve',  'grace',  'paul',   'helen',
+  'mark',   'diana',  'eric',   'claire',
+  'adam',   'julia',  'ben',    'alice',
+  'sam',    'olivia', 'joe',    'emma2',
+  'dan',    'sophie', 'rob',    'laura',
+  'tim',    'rachel', 'jim',    'sarah',
 ] as const;
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -183,9 +192,9 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                 </button>
               </div>
 
-              {/* ── Preset grid (4×4) ─────────────────────────────────── */}
+              {/* ── Preset grid (4-col scrollable) ───────────────────── */}
               {activeTab === 'preset' && (
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
                   {PRESET_SEEDS.map((seed) => {
                     const url      = dicebearUrl(seed);
                     const selected = value === url;

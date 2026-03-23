@@ -8,6 +8,7 @@ import { getSession, signOut } from '@/lib/auth';
 import RollingNumber from '@/components/RollingNumber';
 import type { User } from '@supabase/supabase-js';
 import type { Bid } from '@/types';
+import AvatarPicker from '@/components/AvatarPicker';
 
 // ── Rolling count (integers, no $ prefix) ──────────────────────────────────
 function RollingCount({ value, className }: { value: number; className?: string }) {
@@ -46,6 +47,15 @@ interface Analytics {
   totalBids: number;
   currentKing: Bid | null;
   avgBidCents: number;
+}
+
+interface EditRow {
+  id: string;
+  fanHandle: string;
+  message: string;
+  avatarUrl: string | null;
+  saving: boolean;
+  saveMsg: string | null;
 }
 
 interface CreatorRow {
@@ -134,6 +144,10 @@ export default function DashboardPage() {
   // Seeding
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
+
+  // Raw bids (for seed editor)
+  const [rawBids, setRawBids] = useState<Bid[]>([]);
+  const [editRows, setEditRows] = useState<EditRow[]>([]);
 
   // ── Auth check ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -235,11 +249,53 @@ export default function DashboardPage() {
 
     console.log('[dashboard] Revenue (cents):', totalRevenueCents, '→ $' + (totalRevenueCents / 100).toFixed(2));
     setAnalytics({ totalRevenueCents, totalBids, currentKing: king ?? null, avgBidCents });
+    setRawBids(bids);
   }, []);
 
   useEffect(() => {
     if (creator?.id) fetchAnalytics(creator.id);
   }, [creator?.id, fetchAnalytics]);
+
+  // ── Init edit rows from raw bids ───────────────────────────────────────────
+  useEffect(() => {
+    if (rawBids.length === 0) return;
+    setEditRows(rawBids.map((b) => ({
+      id: b.id,
+      fanHandle: b.fan_handle,
+      message: b.message ?? '',
+      avatarUrl: b.fan_avatar_url,
+      saving: false,
+      saveMsg: null,
+    })));
+  }, [rawBids]);
+
+  // ── Save seeded row ─────────────────────────────────────────────────────────
+  const handleSaveRow = async (rowIdx: number) => {
+    const row = editRows[rowIdx];
+    setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saving: true, saveMsg: null } : r));
+
+    const res = await fetch('/api/dashboard/seed/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bidId: row.id,
+        fanHandle: row.fanHandle,
+        message: row.message,
+        fanAvatarUrl: row.avatarUrl,
+      }),
+    });
+    const body = await res.json() as { ok?: boolean; error?: string };
+    const saveMsg = res.ok ? '✓ Saved' : (body.error ?? 'Failed to save');
+
+    setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saving: false, saveMsg } : r));
+
+    if (res.ok && creator?.id) {
+      fetchAnalytics(creator.id);
+      setTimeout(() => {
+        setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saveMsg: null } : r));
+      }, 2500);
+    }
+  };
 
   // ── Save slug ──────────────────────────────────────────────────────────────
   const handleSaveSlug = async () => {
@@ -315,6 +371,12 @@ export default function DashboardPage() {
   const planKey = (creator?.plan_type ?? 'starter') as keyof typeof PLAN_CONFIG;
   const plan = PLAN_CONFIG[planKey] ?? PLAN_CONFIG.starter;
   const savedSlug = creator?.slug ?? '';
+
+  // Show seed editor only when all current bids are seeded demo data
+  const isSeeded =
+    analytics.totalBids > 0 &&
+    rawBids.length > 0 &&
+    rawBids.every((b) => b.stripe_payment_intent_id.startsWith('pi_seed_'));
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   return (
@@ -698,6 +760,107 @@ export default function DashboardPage() {
             )}
           </AnimatePresence>
         </motion.section>
+
+        {/* ── SECTION 4b: Edit Seed Data ────────────────────────────────────── */}
+        <AnimatePresence>
+          {isSeeded && editRows.length > 0 && (
+            <motion.section
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <div>
+                <h3 className="text-lg font-bold text-white">Edit Seed Data</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Customise your 10 demo fans</p>
+              </div>
+
+              <div className="space-y-3">
+                {editRows.map((row, idx) => (
+                  <div
+                    key={row.id}
+                    className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+                  >
+                    {/* Handle + avatar row */}
+                    <div className="flex items-center gap-3">
+                      <AvatarPicker
+                        fanHandle={row.fanHandle}
+                        value={row.avatarUrl}
+                        onChange={(url) =>
+                          setEditRows((prev) =>
+                            prev.map((r, i) => i === idx ? { ...r, avatarUrl: url } : r)
+                          )
+                        }
+                      />
+                      <input
+                        type="text"
+                        value={row.fanHandle}
+                        onChange={(e) =>
+                          setEditRows((prev) =>
+                            prev.map((r, i) => i === idx ? { ...r, fanHandle: e.target.value } : r)
+                          )
+                        }
+                        placeholder="Fan handle"
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                   text-sm text-white placeholder:text-slate-600
+                                   focus:outline-none focus:border-indigo-500/60 transition-colors"
+                      />
+                    </div>
+
+                    {/* Message + save row */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={row.message}
+                        onChange={(e) =>
+                          setEditRows((prev) =>
+                            prev.map((r, i) => i === idx ? { ...r, message: e.target.value } : r)
+                          )
+                        }
+                        placeholder="Message"
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
+                                   text-sm text-white placeholder:text-slate-600
+                                   focus:outline-none focus:border-indigo-500/60 transition-colors"
+                      />
+                      <motion.button
+                        onClick={() => handleSaveRow(idx)}
+                        disabled={row.saving}
+                        className="px-4 py-2 rounded-lg font-semibold text-xs
+                                   bg-indigo-600 hover:bg-indigo-500 text-white
+                                   disabled:opacity-50 transition-colors flex-shrink-0"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        {row.saving ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            Saving…
+                          </span>
+                        ) : 'Save'}
+                      </motion.button>
+                    </div>
+
+                    {/* Per-row save feedback */}
+                    <AnimatePresence>
+                      {row.saveMsg && (
+                        <motion.p
+                          key="save-msg"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
+                        >
+                          {row.saveMsg}
+                        </motion.p>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
 
         {/* ── SECTION 5: Plan Badge ─────────────────────────────────────────── */}
         <motion.section
