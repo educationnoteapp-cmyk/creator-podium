@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
 import CreatorPodiumClient from './CreatorPodiumClient';
 
 export const dynamic = 'force-dynamic';
@@ -8,15 +8,24 @@ interface Props {
 }
 
 // Server Component: fetches initial data, passes to client for realtime updates.
+// Uses supabaseAdmin (service role) so that public podium pages bypass RLS —
+// the bids table has no anonymous SELECT policy by design.
 export default async function CreatorPodiumPage({ params }: Props) {
   const { creatorSlug } = params;
+  console.log('[podium] Fetching creator for slug:', creatorSlug);
 
-  // Fetch creator by slug
-  const { data: creator } = await supabase
+  // Fetch creator by slug (admin client bypasses RLS)
+  const { data: creator, error: creatorError } = await supabaseAdmin
     .from('creators')
     .select('*')
     .eq('slug', creatorSlug)
     .single();
+
+  if (creatorError) {
+    console.error('[podium] Creator fetch error:', creatorError.message);
+  }
+
+  console.log('[podium] Creator result:', creator?.id ?? 'NOT FOUND');
 
   if (!creator) {
     return (
@@ -29,14 +38,20 @@ export default async function CreatorPodiumPage({ params }: Props) {
     );
   }
 
-  // Fetch the top 10 bids by amount (descending) — these determine the leaderboard positions.
-  // Rank is derived from sort order: highest amount = position 1 (King).
-  const { data: initialBids } = await supabase
+  // Fetch the top 10 bids by amount (descending) — determines leaderboard positions.
+  // supabaseAdmin bypasses RLS so this works for anonymous visitors.
+  const { data: initialBids, error: bidsError } = await supabaseAdmin
     .from('bids')
     .select('*')
     .eq('creator_id', creator.id)
     .order('amount_paid', { ascending: false })
     .limit(10);
+
+  if (bidsError) {
+    console.error('[podium] Bids fetch error:', bidsError.message);
+  }
+
+  console.log('[podium] Fetched', initialBids?.length ?? 0, 'bids for creator:', creator.id);
 
   return (
     <CreatorPodiumClient

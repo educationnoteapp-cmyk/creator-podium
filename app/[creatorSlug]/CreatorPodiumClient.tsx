@@ -13,6 +13,7 @@ import Podium from '@/components/Podium';
 import Leaderboard from '@/components/Leaderboard';
 import BidButton from '@/components/BidButton';
 import type { Creator, Bid } from '@/types';
+import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js';
 
 interface Props {
   creator: Creator;
@@ -23,16 +24,23 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
   const [bids, setBids] = useState<Bid[]>(initialBids);
   const [newBidFlash, setNewBidFlash] = useState(false);
 
+  useEffect(() => {
+    console.log('[podium-client] Mounted. initialBids length:', initialBids.length);
+    console.log('[podium-client] creator:', creator.id, 'slug:', creator.slug);
+  }, [creator.id, creator.slug, initialBids.length]);
+
+  // Re-fetch bids via server API route (uses supabaseAdmin to bypass RLS)
   const fetchBids = useCallback(async () => {
-    const { data } = await supabaseBrowser
-      .from('bids')
-      .select('*')
-      .eq('creator_id', creator.id)
-      .order('amount_paid', { ascending: false })
-      .limit(10);
-    if (data) {
-      setBids(data);
-      // Trigger a visual flash to indicate live update
+    console.log('[podium-client] Re-fetching bids for creator:', creator.id);
+    const res = await fetch(`/api/podium/bids?creator_id=${creator.id}`);
+    if (!res.ok) {
+      console.error('[podium-client] fetchBids failed:', res.status);
+      return;
+    }
+    const body = await res.json() as { bids?: Bid[] };
+    if (body.bids) {
+      console.log('[podium-client] Fetched', body.bids.length, 'bids');
+      setBids(body.bids);
       setNewBidFlash(true);
       setTimeout(() => setNewBidFlash(false), 600);
     }
@@ -49,7 +57,7 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
           table: 'bids',
           filter: `creator_id=eq.${creator.id}`,
         },
-        () => { fetchBids(); }
+        (_payload: RealtimePostgresInsertPayload<Bid>) => { fetchBids(); }
       )
       .subscribe();
 
