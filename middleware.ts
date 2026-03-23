@@ -14,7 +14,7 @@ const SECURITY_HEADERS: Record<string, string> = {
     "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com",
     "font-src 'self' https://fonts.gstatic.com https://www.gstatic.com",
-    "img-src 'self' data: https://unavatar.io https://api.dicebear.com https://pbs.twimg.com https://www.gstatic.com https://fzeupxiivncgifbyxqjy.supabase.co https:",
+    "img-src 'self' data: blob: https://unavatar.io https://api.dicebear.com https://pbs.twimg.com https://www.gstatic.com https://fzeupxiivncgifbyxqjy.supabase.co https:",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://api.openai.com",
   ].join('; '),
 };

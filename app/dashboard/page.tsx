@@ -211,22 +211,31 @@ export default function DashboardPage() {
   }
 
   // ── Analytics ──────────────────────────────────────────────────────────────
+  // Uses /api/podium/bids (supabaseAdmin) to bypass RLS on the bids table.
+  // Amounts from DB are in cents; RollingNumber divides by 100 for display.
   const fetchAnalytics = useCallback(async (cid: string) => {
-    const { data: bids } = await supabase
-      .from('bids')
-      .select('*')
-      .eq('creator_id', cid);
+    console.log('[dashboard] Fetching analytics for creator_id:', cid);
 
-    const totalRevenueCents = bids?.reduce((s, b) => s + b.amount_paid, 0) ?? 0;
-    const totalBids = bids?.length ?? 0;
-    const avgBidCents = totalBids > 0 ? Math.round(totalRevenueCents / totalBids) : 0;
+    const res = await fetch(`/api/podium/bids?creator_id=${encodeURIComponent(cid)}`);
+    if (!res.ok) {
+      console.error('[dashboard] Analytics fetch failed:', res.status);
+      return;
+    }
+    const body = await res.json() as { bids?: Bid[] };
+    const bids = body.bids ?? [];
 
-    const king = bids?.length
+    console.log('[dashboard] Analytics bids count:', bids.length);
+
+    const totalRevenueCents = bids.reduce((s, b) => s + b.amount_paid, 0);
+    const totalBids         = bids.length;
+    const avgBidCents       = totalBids > 0 ? Math.round(totalRevenueCents / totalBids) : 0;
+    const king              = totalBids > 0
       ? bids.reduce((best, b) => (b.amount_paid > best.amount_paid ? b : best), bids[0])
       : null;
 
+    console.log('[dashboard] Revenue (cents):', totalRevenueCents, '→ $' + (totalRevenueCents / 100).toFixed(2));
     setAnalytics({ totalRevenueCents, totalBids, currentKing: king ?? null, avgBidCents });
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     if (creator?.id) fetchAnalytics(creator.id);

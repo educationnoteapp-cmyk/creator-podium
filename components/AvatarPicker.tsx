@@ -3,20 +3,22 @@
 // AvatarPicker.tsx — Avatar selector for bid forms.
 //
 // Two options:
-//   A) Upload a photo  → uploads to Supabase Storage bucket "avatars"
-//   B) Choose a preset → 8 DiceBear avataaars presets
+//   A) Upload a photo  → POST /api/avatar/upload (supabaseAdmin, bypasses anon RLS)
+//   B) Choose a preset → 16 DiceBear avataaars presets (named seeds)
 //
 // Default avatar auto-generated from fan handle via DiceBear.
-// Shows a circular 48px preview with a camera button to open the modal.
+// Shows a circular 48px preview with a 📷 badge to open the modal.
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabaseBrowser } from '@/lib/supabase-browser';
 
-const STORAGE_URL =
-  'https://fzeupxiivncgifbyxqjy.supabase.co/storage/v1/object/public/avatars/';
-
-const PRESET_SEEDS = ['1', '2', '3', '4', '5', '6', '7', '8'] as const;
+// 16 named seeds for more visual variety
+const PRESET_SEEDS = [
+  'felix', 'aneka', 'bob',  'sara',
+  'mike',  'luna',  'jake', 'emma',
+  'alex',  'zoe',   'max',  'lily',
+  'ryan',  'sofia', 'tom',  'maya',
+] as const;
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 
@@ -33,10 +35,10 @@ interface AvatarPickerProps {
 }
 
 export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPickerProps) {
-  const [isOpen, setIsOpen]         = useState(false);
-  const [activeTab, setActiveTab]   = useState<'preset' | 'upload'>('preset');
-  const [uploading, setUploading]   = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isOpen, setIsOpen]             = useState(false);
+  const [activeTab, setActiveTab]       = useState<'preset' | 'upload'>('preset');
+  const [uploading, setUploading]       = useState(false);
+  const [uploadError, setUploadError]   = useState<string | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +46,10 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
   const defaultAvatar = dicebearUrl(fanHandle || 'fan');
   const displayAvatar = value || defaultAvatar;
 
-  // ── File upload ──────────────────────────────────────────────────────────
+  // ── File upload via server API route ────────────────────────────────────
+  // Direct Supabase Storage upload from the browser fails because the anon
+  // key has no INSERT policy on the avatars bucket. We proxy through
+  // /api/avatar/upload which uses the service-role key.
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -57,28 +62,33 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
       return;
     }
 
-    // Show circular preview immediately while uploading
+    // Show circular blob: preview immediately (requires blob: in CSP img-src)
     const objectUrl = URL.createObjectURL(file);
     setLocalPreview(objectUrl);
     setUploading(true);
 
     try {
-      const safeName  = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const filename  = `${crypto.randomUUID()}-${safeName}`;
+      const formData = new FormData();
+      formData.append('file', file);
 
-      const { data, error } = await supabaseBrowser.storage
-        .from('avatars')
-        .upload(filename, file, { contentType: file.type });
+      const res = await fetch('/api/avatar/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-      if (error) {
-        setUploadError(`Upload failed: ${error.message}`);
+      const body = await res.json() as { url?: string; error?: string };
+
+      if (!res.ok || !body.url) {
+        setUploadError(body.error ?? 'Upload failed — try again');
         setLocalPreview(null);
         return;
       }
 
-      const publicUrl = `${STORAGE_URL}${data.path}`;
-      onChange(publicUrl);
+      onChange(body.url);
       setIsOpen(false);
+      setLocalPreview(null);
+    } catch {
+      setUploadError('Upload failed — check your connection');
       setLocalPreview(null);
     } finally {
       setUploading(false);
@@ -173,11 +183,11 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                 </button>
               </div>
 
-              {/* ── Preset grid ───────────────────────────────────────── */}
+              {/* ── Preset grid (4×4) ─────────────────────────────────── */}
               {activeTab === 'preset' && (
                 <div className="grid grid-cols-4 gap-2">
                   {PRESET_SEEDS.map((seed) => {
-                    const url = dicebearUrl(seed);
+                    const url      = dicebearUrl(seed);
                     const selected = value === url;
                     return (
                       <button
@@ -192,7 +202,7 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={url}
-                          alt={`Avatar option ${seed}`}
+                          alt={seed}
                           className="w-full h-full bg-slate-800"
                         />
                       </button>
@@ -204,7 +214,7 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
               {/* ── Upload tab ────────────────────────────────────────── */}
               {activeTab === 'upload' && (
                 <div className="space-y-3">
-                  {/* Preview */}
+                  {/* blob: preview — requires blob: in CSP img-src */}
                   {localPreview && (
                     <div className="flex justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -218,7 +228,8 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
 
                   {/* Error */}
                   {uploadError && (
-                    <p className="text-xs text-red-400 text-center bg-red-950/40 border border-red-800/40 rounded-lg px-3 py-2">
+                    <p className="text-xs text-red-400 text-center bg-red-950/40
+                                  border border-red-800/40 rounded-lg px-3 py-2">
                       {uploadError}
                     </p>
                   )}
@@ -232,7 +243,7 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                     onChange={handleFileChange}
                   />
 
-                  {/* Upload button */}
+                  {/* Trigger button */}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -244,7 +255,8 @@ export default function AvatarPicker({ fanHandle, value, onChange }: AvatarPicke
                   >
                     {uploading ? (
                       <>
-                        <span className="w-4 h-4 border-2 border-slate-600 border-t-white rounded-full animate-spin" />
+                        <span className="w-4 h-4 border-2 border-slate-600 border-t-white
+                                         rounded-full animate-spin" />
                         Uploading…
                       </>
                     ) : (
