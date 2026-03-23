@@ -40,20 +40,6 @@ function RollingCount({ value, className }: { value: number; className?: string 
   );
 }
 
-// ── Seed data (exact handles + amounts from spec) ───────────────────────────
-const FAKE_FANS = [
-  { handle: '@CryptoChad',       message: 'TO THE MOON 🚀',                    amount: 1200 },
-  { handle: '@BigSpenderSteve',  message: 'I sold my couch for this',           amount: 1100 },
-  { handle: '@DadJokeDave',      message: "Hi Hungry, I'm on the podium",        amount: 1000 },
-  { handle: '@MemeQueen99',      message: 'This is fine 🔥',                    amount:  900 },
-  { handle: '@TouchGrassPlease', message: 'Outside is overrated anyway',         amount:  800 },
-  { handle: '@NFTBro2024',       message: 'My jpeg told me to do this',          amount:  700 },
-  { handle: '@YOLOKing',         message: 'You only live once',                  amount:  700 },
-  { handle: '@VibeCheck',        message: 'Vibe: immaculate ✅',                 amount:  600 },
-  { handle: '@NoSleepCrew',      message: "It's 3am and I have no regrets",      amount:  600 },
-  { handle: '@JustHereToWatch',  message: 'Here for the drama honestly',         amount:  500 },
-];
-
 // ── Types ───────────────────────────────────────────────────────────────────
 interface Analytics {
   totalRevenueCents: number;
@@ -196,20 +182,20 @@ export default function DashboardPage() {
         return;
       }
 
-      // First login — auto-INSERT
+      // First login — create creator row via API (uses supabaseAdmin to bypass RLS)
       const emailUser = (user!.email ?? '').split('@')[0].toLowerCase().replace(/[^a-z0-9-]/g, '') || 'creator';
       const tempSlug = `${emailUser}-${user!.id.slice(0, 6)}`;
 
-      const { data: created, error } = await supabase
-        .from('creators')
-        .insert({
-          auth_user_id: user!.id,
-          slug: tempSlug,
-        })
-        .select()
-        .single();
+      const res = await fetch('/api/dashboard/creator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: tempSlug }),
+      });
 
-      if (!error && created) hydrate(created);
+      if (res.ok) {
+        const body = await res.json() as { creator: CreatorRow };
+        if (body.creator) hydrate(body.creator);
+      }
     }
 
     loadOrCreate();
@@ -252,21 +238,22 @@ export default function DashboardPage() {
     setSlugMsg(null);
 
     const clean = cleanSlug(slug);
-    const { data, error } = await supabase
-      .from('creators')
-      .update({ slug: clean })
-      .eq('id', creator!.id)
-      .select()
-      .single();
+    const res = await fetch('/api/dashboard/creator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: clean }),
+    });
 
-    if (error) {
-      setSlugMsg({
-        type: 'err',
-        text: error.code === '23505' ? 'That slug is already taken — try another' : error.message,
-      });
-    } else {
-      setCreator((c) => c ? { ...c, slug: data.slug } : c);
-      setSlug(data.slug);
+    const body = await res.json() as { creator?: CreatorRow; error?: { code?: string; message?: string } | string };
+    if (!res.ok) {
+      const errObj = body.error;
+      const errMsg = typeof errObj === 'object' && errObj !== null
+        ? (errObj.code === '23505' ? 'That slug is already taken — try another' : (errObj.message ?? 'Failed to save'))
+        : (typeof errObj === 'string' ? errObj : 'Failed to save');
+      setSlugMsg({ type: 'err', text: errMsg });
+    } else if (body.creator) {
+      setCreator((c) => c ? { ...c, slug: body.creator!.slug } : c);
+      setSlug(body.creator.slug);
       setSlugMsg({ type: 'ok', text: '✓ Saved' });
       setTimeout(() => setSlugMsg(null), 3000);
     }
@@ -288,18 +275,11 @@ export default function DashboardPage() {
     setSeeding(true);
     setSeedMsg(null);
 
-    const rows = FAKE_FANS.map((fan) => ({
-      creator_id: creator.id,
-      fan_handle: fan.handle,
-      fan_avatar_url: null,
-      message: fan.message,
-      amount_paid: fan.amount,
-      stripe_payment_intent_id: `pi_seed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    }));
+    const res = await fetch('/api/dashboard/seed', { method: 'POST' });
+    const body = await res.json() as { ok?: boolean; error?: string };
 
-    const { error } = await supabase.from('bids').insert(rows);
-    if (error) {
-      setSeedMsg(`Error: ${error.message}`);
+    if (!res.ok) {
+      setSeedMsg(`Error: ${body.error ?? 'Failed to seed'}`);
     } else {
       setSeedMsg('🌱 10 fans seeded! Check your podium.');
       fetchAnalytics(creator.id);

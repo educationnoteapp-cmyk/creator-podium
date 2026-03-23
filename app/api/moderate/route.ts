@@ -8,11 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import OpenAI from 'openai';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import { env } from '@/lib/env';
 import type { ModerationResult } from '@/types';
 
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
+// Validate env at import time — throws clearly if anything is missing
+void env;
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? 'placeholder-openai-key' });
 
 // Human-readable labels for OpenAI moderation categories
 const CATEGORY_LABELS: Record<string, string> = {
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const { message } = parsed.data;
 
-    const moderation = await getOpenAI().moderations.create({ input: message });
+    const moderation = await openai.moderations.create({ input: message });
     const result = moderation.results[0];
 
     if (result.flagged) {
