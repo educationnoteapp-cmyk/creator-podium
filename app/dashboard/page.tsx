@@ -5,7 +5,6 @@ import Image from 'next/image';
 import { motion, AnimatePresence, useMotionValue, useSpring, animate as fmAnimate } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { getSession, signOut } from '@/lib/auth';
-import RollingNumber from '@/components/RollingNumber';
 import type { User } from '@supabase/supabase-js';
 import type { Bid } from '@/types';
 import AvatarPicker from '@/components/AvatarPicker';
@@ -152,9 +151,8 @@ export default function DashboardPage() {
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
 
-  // Raw bids (top-10 for podium display) + seed bids for the editor
+  // Raw bids (top-10 for podium display)
   const [rawBids, setRawBids] = useState<Bid[]>([]);
-  const [seedBids, setSeedBids] = useState<Bid[]>([]);
   const [editRows, setEditRows] = useState<EditRow[]>([]);
   const [seedEditorOpen, setSeedEditorOpen] = useState(false);
 
@@ -270,17 +268,17 @@ export default function DashboardPage() {
       seedBids:    body.seedBids    ?? [],
     });
     setRawBids(body.bids ?? []);
-    setSeedBids(body.seedBids ?? []);
   }, []);
 
   useEffect(() => {
     if (creator?.id) fetchAnalytics(creator.id);
   }, [creator?.id, fetchAnalytics]);
 
-  // ── Init edit rows from seedBids (populated by API, no top-10 limit) ────────
+  // ── Init edit rows from analytics.seedBids (no intermediate state, no timing gap)
   useEffect(() => {
-    if (seedBids.length === 0) { setEditRows([]); return; }
-    setEditRows(seedBids.map((b) => ({
+    const seeds = analytics.seedBids;
+    if (seeds.length === 0) { setEditRows([]); return; }
+    setEditRows(seeds.map((b) => ({
       id: b.id,
       fanHandle: b.fan_handle,
       message: b.message ?? '',
@@ -289,7 +287,7 @@ export default function DashboardPage() {
       saving: false,
       saveMsg: null,
     })));
-  }, [seedBids]);
+  }, [analytics.seedBids]);
 
   // ── Save seeded row ─────────────────────────────────────────────────────────
   const handleSaveRow = async (rowIdx: number) => {
@@ -780,7 +778,7 @@ export default function DashboardPage() {
 
         {/* ── SECTION 4b: Manage Demo Fans ─────────────────────────────────── */}
         <AnimatePresence>
-          {analytics.hasSeedData && editRows.length > 0 && (
+          {analytics.seedBids.length > 0 && (
             <motion.section
               className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden"
               initial={{ opacity: 0, y: 16 }}
@@ -798,7 +796,7 @@ export default function DashboardPage() {
                 <div>
                   <h3 className="text-lg font-bold text-white">Manage Demo Fans</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {analytics.seedBids.length} demo fan{analytics.seedBids.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
+                    {analytics.seedBids.length} demo fan{analytics.seedBids.length !== 1 ? 's' : ''} · click to {seedEditorOpen ? 'collapse' : 'expand'}
                   </p>
                 </div>
                 <motion.span
