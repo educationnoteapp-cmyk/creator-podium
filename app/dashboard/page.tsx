@@ -43,10 +43,11 @@ function RollingCount({ value, className }: { value: number; className?: string 
 
 // ── Types ───────────────────────────────────────────────────────────────────
 interface Analytics {
-  totalRevenueCents: number;
   totalBids: number;
-  currentKing: Bid | null;
-  avgBidCents: number;
+  totalCents: number;   // raw cents from DB — divide by 100 to display
+  kingCents: number;    // raw cents
+  kingHandle: string | null;
+  avgCents: number;     // raw cents
 }
 
 interface EditRow {
@@ -135,10 +136,11 @@ export default function DashboardPage() {
 
   // Analytics
   const [analytics, setAnalytics] = useState<Analytics>({
-    totalRevenueCents: 0,
     totalBids: 0,
-    currentKing: null,
-    avgBidCents: 0,
+    totalCents: 0,
+    kingCents: 0,
+    kingHandle: null,
+    avgCents: 0,
   });
 
   // Seeding
@@ -227,7 +229,7 @@ export default function DashboardPage() {
 
   // ── Analytics ──────────────────────────────────────────────────────────────
   // Uses /api/podium/bids (supabaseAdmin) to bypass RLS on the bids table.
-  // Amounts from DB are in cents; RollingNumber divides by 100 for display.
+  // All cent values arrive as raw cents — we divide by 100 only at display time.
   const fetchAnalytics = useCallback(async (cid: string) => {
     console.log('[dashboard] Fetching analytics for creator_id:', cid);
 
@@ -236,20 +238,26 @@ export default function DashboardPage() {
       console.error('[dashboard] Analytics fetch failed:', res.status);
       return;
     }
-    const body = await res.json() as { bids?: Bid[] };
+    const body = await res.json() as {
+      bids?: Bid[];
+      totalBids?: number;
+      totalCents?: number;
+      kingCents?: number;
+      kingHandle?: string | null;
+      avgCents?: number;
+    };
+
     const bids = body.bids ?? [];
+    console.log('[dashboard] totalBids:', body.totalBids, 'totalCents:', body.totalCents,
+      '→ $' + ((body.totalCents ?? 0) / 100).toFixed(2));
 
-    console.log('[dashboard] Analytics bids count:', bids.length);
-
-    const totalRevenueCents = bids.reduce((s, b) => s + b.amount_paid, 0);
-    const totalBids         = bids.length;
-    const avgBidCents       = totalBids > 0 ? Math.round(totalRevenueCents / totalBids) : 0;
-    const king              = totalBids > 0
-      ? bids.reduce((best, b) => (b.amount_paid > best.amount_paid ? b : best), bids[0])
-      : null;
-
-    console.log('[dashboard] Revenue (cents):', totalRevenueCents, '→ $' + (totalRevenueCents / 100).toFixed(2));
-    setAnalytics({ totalRevenueCents, totalBids, currentKing: king ?? null, avgBidCents });
+    setAnalytics({
+      totalBids:   body.totalBids  ?? 0,
+      totalCents:  body.totalCents ?? 0,
+      kingCents:   body.kingCents  ?? 0,
+      kingHandle:  body.kingHandle ?? null,
+      avgCents:    body.avgCents   ?? 0,
+    });
     setRawBids(bids);
   }, []);
 
@@ -373,12 +381,14 @@ export default function DashboardPage() {
   const plan = PLAN_CONFIG[planKey] ?? PLAN_CONFIG.starter;
   const savedSlug = creator?.slug ?? '';
 
-  // Show seed editor whenever there are bids; only seeded rows will be editable
-  const showSeedEditor = analytics.totalBids > 0 && rawBids.length > 0;
-  const seededEditRows = editRows.filter((r) => {
-    const bid = rawBids.find((b) => b.id === r.id);
-    return bid?.stripe_payment_intent_id.startsWith('pi_seed_') ?? false;
-  });
+  // Show "Manage Seed Fans" only when at least one seeded bid exists (seed_ prefix)
+  const hasSeedData = rawBids.some((b) => b.stripe_payment_intent_id.startsWith('seed_'));
+
+  // Helper: is this edit-row a seeded bid?
+  const isSeededRow = (rowId: string) => {
+    const bid = rawBids.find((b) => b.id === rowId);
+    return bid?.stripe_payment_intent_id.startsWith('seed_') ?? false;
+  };
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   return (
@@ -450,14 +460,13 @@ export default function DashboardPage() {
         >
           <p className="text-xs font-semibold tracking-widest text-slate-600 uppercase mb-3">Analytics</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {/* Revenue */}
+            {/* Revenue — divide totalCents by 100 once here */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4
                            hover:border-green-800/50 transition-colors group">
               <span className="text-[10px] text-slate-500 tracking-widest uppercase block mb-2">Revenue</span>
-              <RollingNumber
-                value={analytics.totalRevenueCents}
-                className="text-2xl font-bold text-green-400"
-              />
+              <span className="text-2xl font-bold text-green-400">
+                ${(analytics.totalCents / 100).toFixed(0)}
+              </span>
             </div>
 
             {/* Total bids */}
@@ -470,29 +479,27 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Current King */}
+            {/* Current King — divide kingCents by 100 once here */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4
                            hover:border-yellow-800/50 transition-colors">
               <span className="text-[10px] text-slate-500 tracking-widest uppercase block mb-2">King</span>
               <span className="text-base font-bold text-yellow-400 truncate block">
-                {analytics.currentKing?.fan_handle ?? '—'}
+                {analytics.kingHandle ?? '—'}
               </span>
-              {analytics.currentKing && (
-                <RollingNumber
-                  value={analytics.currentKing.amount_paid}
-                  className="text-xs text-slate-500 mt-0.5"
-                />
+              {analytics.kingHandle && (
+                <span className="text-xs text-slate-500 mt-0.5 block">
+                  ${(analytics.kingCents / 100).toFixed(0)}
+                </span>
               )}
             </div>
 
-            {/* Avg bid */}
+            {/* Avg bid — divide avgCents by 100 once here */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4
                            hover:border-violet-800/50 transition-colors">
               <span className="text-[10px] text-slate-500 tracking-widest uppercase block mb-2">Avg Bid</span>
-              <RollingNumber
-                value={analytics.avgBidCents}
-                className="text-2xl font-bold text-violet-400"
-              />
+              <span className="text-2xl font-bold text-violet-400">
+                ${(analytics.avgCents / 100).toFixed(0)}
+              </span>
             </div>
           </div>
         </motion.section>
@@ -763,9 +770,9 @@ export default function DashboardPage() {
           </AnimatePresence>
         </motion.section>
 
-        {/* ── SECTION 4b: Edit Seed Data ────────────────────────────────────── */}
+        {/* ── SECTION 4b: Manage Seed Fans ─────────────────────────────────── */}
         <AnimatePresence>
-          {showSeedEditor && seededEditRows.length > 0 && (
+          {hasSeedData && editRows.length > 0 && (
             <motion.section
               className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden"
               initial={{ opacity: 0, y: 16 }}
@@ -781,9 +788,15 @@ export default function DashboardPage() {
                            hover:bg-slate-800/40 transition-colors"
               >
                 <div>
-                  <h3 className="text-lg font-bold text-white">Edit Seed Data</h3>
+                  <h3 className="text-lg font-bold text-white">Manage Seed Fans</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {seededEditRows.length} demo fan{seededEditRows.length !== 1 ? 's' : ''} — click to {seedEditorOpen ? 'collapse' : 'expand'}
+                    {editRows.filter((r) => isSeededRow(r.id)).length} demo fans editable
+                    {editRows.filter((r) => !isSeededRow(r.id)).length > 0 && (
+                      <span className="text-amber-500/70">
+                        {' '}· {editRows.filter((r) => !isSeededRow(r.id)).length} real fan{editRows.filter((r) => !isSeededRow(r.id)).length !== 1 ? 's' : ''} locked
+                      </span>
+                    )}
+                    {' '}— click to {seedEditorOpen ? 'collapse' : 'expand'}
                   </p>
                 </div>
                 <motion.span
@@ -807,15 +820,15 @@ export default function DashboardPage() {
                     className="overflow-hidden"
                   >
                     <div className="px-6 pb-6 space-y-3">
-                      {seededEditRows.map((row) => {
-                        // Find the global index in editRows so handleSaveRow targets the right slot
-                        const globalIdx = editRows.findIndex((r) => r.id === row.id);
-                        return (
+                      {editRows.map((row, globalIdx) => {
+                        const seeded = isSeededRow(row.id);
+                        return seeded ? (
+                          /* ── Editable seeded fan row ── */
                           <div
                             key={row.id}
                             className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
                           >
-                            {/* Handle + avatar row */}
+                            {/* Handle + avatar */}
                             <div className="flex items-center gap-3">
                               <AvatarPicker
                                 fanHandle={row.fanHandle}
@@ -841,7 +854,7 @@ export default function DashboardPage() {
                               />
                             </div>
 
-                            {/* Message + save row */}
+                            {/* Message + save */}
                             <div className="flex items-center gap-2">
                               <input
                                 type="text"
@@ -874,7 +887,7 @@ export default function DashboardPage() {
                               </motion.button>
                             </div>
 
-                            {/* Per-row save feedback */}
+                            {/* Per-row feedback */}
                             <AnimatePresence>
                               {row.saveMsg && (
                                 <motion.p
@@ -888,6 +901,36 @@ export default function DashboardPage() {
                                 </motion.p>
                               )}
                             </AnimatePresence>
+                          </div>
+                        ) : (
+                          /* ── Locked real fan row ── */
+                          <div
+                            key={row.id}
+                            className="bg-slate-950/50 border border-slate-800/50 rounded-xl p-3
+                                       opacity-50 cursor-not-allowed"
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Static avatar placeholder */}
+                              <div className="w-12 h-12 rounded-full bg-slate-800 border-2 border-slate-700
+                                              flex items-center justify-center flex-shrink-0">
+                                <span className="text-slate-500 text-lg font-bold">
+                                  {row.fanHandle.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-bold text-slate-400 block truncate">
+                                  {row.fanHandle}
+                                </span>
+                                <span className="text-xs text-amber-500/70 font-medium">
+                                  Real fan — cannot edit
+                                </span>
+                              </div>
+                            </div>
+                            {row.message && (
+                              <p className="text-xs text-slate-600 mt-2 italic truncate pl-15">
+                                &ldquo;{row.message}&rdquo;
+                              </p>
+                            )}
                           </div>
                         );
                       })}

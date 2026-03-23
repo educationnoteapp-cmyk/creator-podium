@@ -1,7 +1,7 @@
 // POST /api/dashboard/seed/edit
 //
 // Updates a single seeded bid's fan_handle, message, and fan_avatar_url.
-// Only works on bids whose stripe_payment_intent_id starts with "pi_seed_".
+// Only works on bids whose stripe_payment_intent_id starts with "seed_".
 // Also syncs the matching row in podium_spots (if one exists).
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -61,8 +61,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
     }
 
-    // Guard: only allow editing seeded bids
-    if (!bid.stripe_payment_intent_id.startsWith('pi_seed_')) {
+    // Guard: only allow editing seeded bids (identified by seed_ prefix)
+    if (!bid.stripe_payment_intent_id.startsWith('seed_')) {
       return NextResponse.json({ error: 'Can only edit seeded bids' }, { status: 403 });
     }
 

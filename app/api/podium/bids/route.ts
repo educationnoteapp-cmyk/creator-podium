@@ -1,9 +1,9 @@
 // GET /api/podium/bids?creator_id=<uuid>
 //
-// Returns the top 10 bids for a creator, ordered by amount_paid DESC.
+// Returns the top 10 bids for a creator plus pre-computed analytics aggregates.
+// All cent values are RAW CENTS from the DB — callers divide by 100 for display.
 // Uses supabaseAdmin (service role) to bypass RLS — the bids table has no
-// anonymous SELECT policy, so the public podium page must go through this
-// route for client-side re-fetches (e.g. after a realtime INSERT event).
+// anonymous SELECT policy.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -31,6 +31,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Return raw cents — callers (RollingNumber, AnimatedAmount) divide by 100 themselves
-  return NextResponse.json({ bids: bids ?? [] });
+  const rows = bids ?? [];
+
+  // Pre-compute analytics — all values in raw cents so callers divide once
+  const totalBids   = rows.length;
+  const totalCents  = rows.reduce((s, b) => s + b.amount_paid, 0);
+  const kingCents   = rows[0]?.amount_paid ?? 0;       // already sorted DESC
+  const kingHandle  = rows[0]?.fan_handle ?? null;
+  const avgCents    = totalBids > 0 ? Math.round(totalCents / totalBids) : 0;
+
+  console.log('[podium/bids] totalBids:', totalBids, 'totalCents:', totalCents, 'kingCents:', kingCents);
+
+  return NextResponse.json({
+    bids: rows,        // full rows — used by public podium page realtime re-fetch
+    totalBids,
+    totalCents,
+    kingCents,
+    kingHandle,
+    avgCents,
+  });
 }

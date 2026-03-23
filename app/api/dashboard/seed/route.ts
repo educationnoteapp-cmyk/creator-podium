@@ -70,13 +70,13 @@ export async function POST() {
     );
   }
 
-  const rows = FAKE_FANS.map((fan) => ({
+  const rows = FAKE_FANS.map((fan, i) => ({
     creator_id:               creator.id,
     fan_handle:               fan.handle,
     fan_avatar_url:           null,
     message:                  fan.message,
     amount_paid:              fan.amount,
-    stripe_payment_intent_id: `pi_seed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    stripe_payment_intent_id: `seed_${i + 1}`,   // seed_1 … seed_10 — identifies seeded bids
   }));
 
   const { error: insertError } = await supabaseAdmin.from('bids').insert(rows);
