@@ -613,14 +613,15 @@ export default function DashboardPage() {
       setSettingsMsg({ type: 'err', text: 'Minimum bid must be less than maximum bid' });
       return;
     }
-    // CHANGE 2: Block save if any ACTIVE seed fans are below the new minimum.
-    // Inactive fans (hidden from podium) are exempt — they don't affect the live podium.
-    const activeSeedFansBelow = analytics.seedBids.filter(b =>
+    // Bug 3 fix: fetch fresh seed bids before validating — analytics.seedBids is stale React state.
+    const freshRes = await fetch(`/api/podium/bids?creator_id=${creator.id}`);
+    const freshBody = await freshRes.json() as { seedBids?: Bid[] };
+    const freshSeedBids: Bid[] = freshBody.seedBids ?? [];
+    const activeSeedFansBelow = freshSeedBids.filter(b =>
       b.is_active !== false &&
       b.amount_paid < minBidDollars * 100
     );
     if (activeSeedFansBelow.length > 0) {
-      // Highlight affected rows with an error
       setEditRows(prev => {
         const next = { ...prev };
         for (const b of activeSeedFansBelow) {

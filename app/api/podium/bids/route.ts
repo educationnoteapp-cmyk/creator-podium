@@ -45,8 +45,8 @@ export async function GET(req: NextRequest) {
   // Bug 2 fix: all seed bids visible to dashboard (simple is_seed check)
   const seedBids = validBids.filter(b => b.is_seed === true)
 
-  // Bug 6 fix: only active bids on podium display (exclude inactive seeds)
-  const activeBids = validBids.filter(b => b.is_seed !== true || b.is_active !== false)
+  // Bug 1 fix: use allBids (not validBids) so seed bids with empty handles still count
+  const activeBids = allBids.filter(b => !b.is_seed || b.is_active !== false)
 
   const realFansOnPodium = Math.min(realBids.length, 10)
 
