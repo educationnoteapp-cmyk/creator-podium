@@ -13,6 +13,8 @@ export interface Creator {
   slug: string;
   stripe_account_id: string | null;
   plan_type: string;
+  max_bid_dollars: number | null;
+  seed_count: number | null;
   created_at: string;
 }
 

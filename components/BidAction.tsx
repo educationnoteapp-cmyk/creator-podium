@@ -30,14 +30,16 @@ interface BidActionProps {
   /** Amount in cents for the current #10 spot (0 if fewer than 10 bids) */
   currentSpot10Amount: number;
   creatorSlug: string;
+  maxBidDollars?: number;
 }
 
 export default function BidAction({
   currentKingAmount,
   currentSpot10Amount,
   creatorSlug,
+  maxBidDollars = 50,
 }: BidActionProps) {
-  const MAXIMUM_BID_DOLLARS = 50; // $50 launch cap
+  const MAXIMUM_BID_DOLLARS = maxBidDollars;
 
   const [fanHandle, setFanHandle] = useState("");
   const [fanAvatarUrl, setFanAvatarUrl] = useState<string | null>(null);
@@ -199,7 +201,7 @@ export default function BidAction({
           <span className="text-slate-500">
             Minimum entry:{" "}
             <span className="text-slate-200 font-bold">${minimumDollars}</span>
-            <span className="opacity-50 ml-1">· max ${MAXIMUM_BID_DOLLARS}</span>
+            <span className="opacity-50 ml-1">· max ${MAXIMUM_BID_DOLLARS} during this podium</span>
           </span>
           <span className="text-slate-500">
             Steal crown:{" "}

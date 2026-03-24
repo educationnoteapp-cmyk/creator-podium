@@ -2,10 +2,11 @@
 // Upserts a creator row for the authenticated user.
 // Uses supabaseAdmin (service role) to bypass RLS.
 //
-// Body: { slug: string }
+// Body: { slug: string, maxBidDollars?: number }
 //
 // On first login the dashboard passes a generated temp slug.
 // On "Save URL" it passes the user-chosen slug.
+// On "Save" from Podium Settings it passes maxBidDollars.
 // Uses ON CONFLICT (auth_user_id) so the same row is updated each time.
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   console.log('[creator] Authenticated user:', user.id);
 
-  const body = await req.json() as { slug?: string };
+  const body = await req.json() as { slug?: string; maxBidDollars?: number };
   const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
 
   if (!slug) {
@@ -34,12 +35,17 @@ export async function POST(req: NextRequest) {
 
   console.log('[creator] Upserting slug:', slug, 'for user:', user.id);
 
+  const upsertData: Record<string, unknown> = { auth_user_id: user.id, slug };
+  if (typeof body.maxBidDollars === 'number') {
+    upsertData.max_bid_dollars = body.maxBidDollars;
+  }
+
   // Upsert: insert on first login, update slug on subsequent saves.
   // creators_auth_user_id_idx is a unique index so ON CONFLICT works correctly.
   const { data: creator, error } = await supabaseAdmin
     .from('creators')
     .upsert(
-      { auth_user_id: user.id, slug },
+      upsertData,
       { onConflict: 'auth_user_id' },
     )
     .select()

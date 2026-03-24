@@ -24,7 +24,6 @@ import type { CheckoutMetadata } from '@/types';
 void env;
 
 const ABSOLUTE_MINIMUM_CENTS = 500;  // $5
-const MAXIMUM_BID_CENTS       = 5000; // $50 launch cap
 const PLATFORM_FEE_PERCENT    = 0.15; // 15% for non-founding/non-trial plans
 
 // ── Zod schema ───────────────────────────────────────────────────────────────
@@ -38,8 +37,7 @@ const CheckoutSchema = z.object({
   amountCents:  z
     .number()
     .int('amountCents must be a whole number')
-    .min(ABSOLUTE_MINIMUM_CENTS, `Minimum bid is $${ABSOLUTE_MINIMUM_CENTS / 100}`)
-    .max(MAXIMUM_BID_CENTS,       `Maximum bid is $${MAXIMUM_BID_CENTS / 100} during launch`),
+    .min(ABSOLUTE_MINIMUM_CENTS, `Minimum bid is $${ABSOLUTE_MINIMUM_CENTS / 100}`),
   fanAvatarUrl: z.string().optional(),
 });
 
@@ -77,12 +75,21 @@ export async function POST(req: NextRequest) {
     // --- Fetch creator ---
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from('creators')
-      .select('id, slug, stripe_account_id, plan_type')
+      .select('id, slug, stripe_account_id, plan_type, max_bid_dollars')
       .eq('slug', creatorSlug)
       .single();
 
     if (creatorError || !creator) {
       return NextResponse.json({ error: 'Creator not found' }, { status: 404 });
+    }
+
+    // --- Enforce creator's max bid ---
+    const maxBidCents = (creator.max_bid_dollars ?? 50) * 100;
+    if (amountCents > maxBidCents) {
+      return NextResponse.json(
+        { error: `Maximum bid is $${creator.max_bid_dollars ?? 50} during this podium` },
+        { status: 400 }
+      );
     }
 
     // --- Ensure creator has connected Stripe ---

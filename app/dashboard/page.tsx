@@ -57,6 +57,8 @@ interface CreatorRow {
   stripe_account_id: string | null;
   plan_type: string;
   auth_user_id: string;
+  max_bid_dollars: number | null;
+  seed_count: number | null;
 }
 
 // ── Slug validation ─────────────────────────────────────────────────────────
@@ -110,11 +112,12 @@ function SeedFanRow({ bid }: { bid: any }) {
   const [handle, setHandle] = useState(bid.fan_handle)
   const [message, setMessage] = useState(bid.message ?? '')
   const [amount, setAmount] = useState(bid.amount_paid / 100)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(bid.fan_avatar_url)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  const save = async () => {
+  const save = async (overrideAvatar?: string) => {
     setSaving(true)
     setError('')
     const res = await fetch('/api/dashboard/seed/edit', {
@@ -124,7 +127,7 @@ function SeedFanRow({ bid }: { bid: any }) {
         bidId: bid.id,
         fanHandle: handle,
         message,
-        fanAvatarUrl: bid.fan_avatar_url,
+        fanAvatarUrl: overrideAvatar !== undefined ? overrideAvatar : avatarUrl,
         amountDollars: amount
       })
     })
@@ -137,13 +140,17 @@ function SeedFanRow({ bid }: { bid: any }) {
     }
   }
 
+  const handleAvatarChange = (url: string) => {
+    setAvatarUrl(url)
+    save(url)
+  }
+
   return (
     <div className="flex gap-2 items-center bg-slate-800 rounded-xl p-3 flex-wrap">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={bid.fan_avatar_url ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(bid.fan_handle || 'fan')}`}
-        alt={handle}
-        className="w-10 h-10 rounded-full flex-shrink-0"
+      <AvatarPicker
+        fanHandle={handle}
+        value={avatarUrl}
+        onChange={handleAvatarChange}
       />
       <input
         value={handle}
@@ -169,7 +176,7 @@ function SeedFanRow({ bid }: { bid: any }) {
         />
       </div>
       <button
-        onClick={save}
+        onClick={() => save()}
         disabled={saving}
         className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-3 py-1 text-sm font-medium disabled:opacity-50 min-w-[60px]"
       >
@@ -215,6 +222,12 @@ export default function DashboardPage() {
   // Seeding
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
+
+  // Podium settings
+  const [maxBidDollars, setMaxBidDollars] = useState(50);
+  const [seedCount, setSeedCount] = useState(10);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Raw bids (top-10 for podium display)
   const [rawBids, setRawBids] = useState<Bid[]>([]);
@@ -292,6 +305,8 @@ export default function DashboardPage() {
     setCreator(row);
     setSlug(row.slug ?? '');
     setStripeConnected(!!row.stripe_account_id);
+    setMaxBidDollars(row.max_bid_dollars ?? 50);
+    setSeedCount(row.seed_count ?? 10);
   }
 
   // ── Analytics ──────────────────────────────────────────────────────────────
@@ -393,6 +408,46 @@ export default function DashboardPage() {
       fetchAnalytics(creator.id);
     }
     setSeeding(false);
+  };
+
+  // ── Save max bid dollars ───────────────────────────────────────────────────
+  const handleSaveMaxBid = async () => {
+    if (!creator) return;
+    setSavingSettings(true);
+    setSettingsMsg(null);
+    const res = await fetch('/api/dashboard/creator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: creator.slug, maxBidDollars }),
+    });
+    setSavingSettings(false);
+    if (res.ok) {
+      setSettingsMsg({ type: 'ok', text: '✓ Saved' });
+      setTimeout(() => setSettingsMsg(null), 3000);
+    } else {
+      setSettingsMsg({ type: 'err', text: 'Failed to save' });
+    }
+  };
+
+  // ── Save seed count ────────────────────────────────────────────────────────
+  const handleSaveSeedCount = async () => {
+    if (!creator) return;
+    setSavingSettings(true);
+    setSettingsMsg(null);
+    const res = await fetch('/api/dashboard/podium-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seedCount }),
+    });
+    setSavingSettings(false);
+    if (res.ok) {
+      setSettingsMsg({ type: 'ok', text: '✓ Saved' });
+      setTimeout(() => setSettingsMsg(null), 3000);
+      fetchAnalytics(creator.id);
+    } else {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      setSettingsMsg({ type: 'err', text: body.error ?? 'Failed to save' });
+    }
   };
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -703,6 +758,94 @@ export default function DashboardPage() {
               >
                 {stripeConnectMsg.text}
               </motion.p>
+            )}
+          </AnimatePresence>
+        </motion.section>
+
+        {/* ── SECTION 3b: Podium Settings ──────────────────────────────────── */}
+        <motion.section
+          className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+        >
+          <div>
+            <h3 className="text-lg font-bold text-white">Podium Settings</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Configure bidding limits and demo fans</p>
+          </div>
+
+          {/* Max bid */}
+          <div>
+            <label className="text-[10px] text-slate-500 tracking-widest uppercase block mb-1.5 font-medium">
+              Maximum bid allowed ($)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={maxBidDollars}
+                min={5}
+                max={500}
+                onChange={e => setMaxBidDollars(Number(e.target.value))}
+                className="w-32 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm
+                           focus:outline-none focus:border-indigo-500/60 transition-all"
+              />
+              <motion.button
+                onClick={handleSaveMaxBid}
+                disabled={savingSettings || !creator}
+                className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white
+                           bg-indigo-600 hover:bg-indigo-500
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {savingSettings ? '…' : 'Save'}
+              </motion.button>
+            </div>
+          </div>
+
+          {/* Seed count */}
+          <div>
+            <label className="text-[10px] text-slate-500 tracking-widest uppercase block mb-1.5 font-medium">
+              Number of demo fans to show (0–10)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={seedCount}
+                min={0}
+                max={10}
+                onChange={e => setSeedCount(Number(e.target.value))}
+                className="w-32 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm
+                           focus:outline-none focus:border-indigo-500/60 transition-all"
+              />
+              <motion.button
+                onClick={handleSaveSeedCount}
+                disabled={savingSettings || !creator}
+                className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white
+                           bg-indigo-600 hover:bg-indigo-500
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {savingSettings ? '…' : 'Save'}
+              </motion.button>
+            </div>
+            <p className="text-[10px] text-slate-600 mt-1">
+              Decreasing removes the lowest-amount demo fans
+            </p>
+          </div>
+
+          <AnimatePresence>
+            {settingsMsg && (
+              <motion.span
+                key="settings-msg"
+                initial={{ opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0 }}
+                className={`text-sm font-medium ${settingsMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}
+              >
+                {settingsMsg.text}
+              </motion.span>
             )}
           </AnimatePresence>
         </motion.section>

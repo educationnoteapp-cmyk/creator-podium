@@ -15,11 +15,11 @@ import AvatarPicker from './AvatarPicker';
 import type { Bid, ModerationResult } from '@/types';
 
 const ABSOLUTE_MINIMUM_CENTS = 500;
-const MAXIMUM_BID_DOLLARS    = 50; // $50 launch cap
 
 interface BidButtonProps {
   creatorSlug: string;
   currentSpots: (Bid | null)[];
+  maxBidDollars?: number;
   disabled?: boolean;
 }
 
@@ -48,7 +48,7 @@ function HeartbeatRing({ active }: { active: boolean }) {
   );
 }
 
-export default function BidButton({ creatorSlug, currentSpots, disabled = false }: BidButtonProps) {
+export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 50, disabled = false }: BidButtonProps) {
   const [fanHandle, setFanHandle] = useState('');
   const [fanAvatarUrl, setFanAvatarUrl] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -124,7 +124,7 @@ export default function BidButton({ creatorSlug, currentSpots, disabled = false 
 
     if (!fanHandle.trim()) { setError('Enter your handle'); startCooldown(); return; }
     if (isNaN(cents) || cents < minimumBidCents) { setError(`Minimum bid is $${minimumBidDollars}`); startCooldown(); return; }
-    if (cents > MAXIMUM_BID_DOLLARS * 100) { setError(`Maximum bid is $${MAXIMUM_BID_DOLLARS} during launch`); startCooldown(); return; }
+    if (cents > maxBidDollars * 100) { setError(`Maximum bid is $${maxBidDollars} during this podium`); startCooldown(); return; }
 
     setLoading(true);
     try {
@@ -238,7 +238,7 @@ export default function BidButton({ creatorSlug, currentSpots, disabled = false 
                 {currentSpots.filter(Boolean).length >= 10 ? '(outbid #10 + $1)' : '(open spots available)'}
               </span>
               <span className="text-xs text-muted ml-2 opacity-60">
-                · max ${MAXIMUM_BID_DOLLARS} during launch
+                · max ${maxBidDollars} during this podium
               </span>
             </div>
 
@@ -290,7 +290,7 @@ export default function BidButton({ creatorSlug, currentSpots, disabled = false 
                   onChange={(e) => handleAmountChange(e.target.value)}
                   placeholder={minimumBidDollars}
                   min={parseInt(minimumBidDollars)}
-                  max={MAXIMUM_BID_DOLLARS}
+                  max={maxBidDollars}
                   step="1"
                   className="w-full bg-background border border-border rounded-xl pl-10 pr-4 py-4
                              text-text-main text-2xl font-extrabold

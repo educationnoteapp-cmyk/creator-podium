@@ -113,7 +113,11 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
       <Leaderboard spots={leaderboardSpots} onBid={() => {}} />
 
       {/* Bid Panel */}
-      <BidButton creatorSlug={creator.slug} currentSpots={allSlots} />
+      <BidButton
+        creatorSlug={creator.slug}
+        currentSpots={allSlots}
+        maxBidDollars={creator.max_bid_dollars ?? 50}
+      />
 
       {/* Live indicator */}
       <motion.div
