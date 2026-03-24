@@ -57,6 +57,7 @@ interface CreatorRow {
   stripe_account_id: string | null;
   plan_type: string;
   auth_user_id: string;
+  min_bid_dollars: number | null;
   max_bid_dollars: number | null;
   seed_count: number | null;
 }
@@ -224,6 +225,7 @@ export default function DashboardPage() {
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
 
   // Podium settings
+  const [minBidDollars, setMinBidDollars] = useState(5);
   const [maxBidDollars, setMaxBidDollars] = useState(50);
   const [seedCount, setSeedCount] = useState(10);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -305,6 +307,7 @@ export default function DashboardPage() {
     setCreator(row);
     setSlug(row.slug ?? '');
     setStripeConnected(!!row.stripe_account_id);
+    setMinBidDollars(row.min_bid_dollars ?? 5);
     setMaxBidDollars(row.max_bid_dollars ?? 50);
     setSeedCount(row.seed_count ?? 10);
   }
@@ -418,7 +421,7 @@ export default function DashboardPage() {
     const res = await fetch('/api/dashboard/creator', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: creator.slug, maxBidDollars }),
+      body: JSON.stringify({ slug: creator.slug, minBidDollars, maxBidDollars }),
     });
     setSavingSettings(false);
     if (res.ok) {
@@ -772,6 +775,35 @@ export default function DashboardPage() {
           <div>
             <h3 className="text-lg font-bold text-white">Podium Settings</h3>
             <p className="text-xs text-slate-500 mt-0.5">Configure bidding limits and demo fans</p>
+          </div>
+
+          {/* Min bid */}
+          <div>
+            <label className="text-[10px] text-slate-500 tracking-widest uppercase block mb-1.5 font-medium">
+              Minimum bid allowed ($)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={minBidDollars}
+                min={1}
+                max={50}
+                onChange={e => setMinBidDollars(Number(e.target.value))}
+                className="w-32 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm
+                           focus:outline-none focus:border-indigo-500/60 transition-all"
+              />
+              <motion.button
+                onClick={handleSaveMaxBid}
+                disabled={savingSettings || !creator}
+                className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white
+                           bg-indigo-600 hover:bg-indigo-500
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {savingSettings ? '…' : 'Save'}
+              </motion.button>
+            </div>
           </div>
 
           {/* Max bid */}

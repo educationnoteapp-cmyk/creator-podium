@@ -23,8 +23,7 @@ import type { CheckoutMetadata } from '@/types';
 // Validate env at import time — throws clearly if anything is missing
 void env;
 
-const ABSOLUTE_MINIMUM_CENTS = 500;  // $5
-const PLATFORM_FEE_PERCENT    = 0.15; // 15% for non-founding/non-trial plans
+const PLATFORM_FEE_PERCENT = 0.15; // 15% for non-founding/non-trial plans
 
 // ── Zod schema ───────────────────────────────────────────────────────────────
 // noHtml: reject strings containing < or > to block HTML/script injection
@@ -34,10 +33,7 @@ const CheckoutSchema = z.object({
   creatorSlug:  z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Invalid slug format'),
   fanHandle:    noHtml.min(1).max(30),
   message:      noHtml.max(100).optional(),
-  amountCents:  z
-    .number()
-    .int('amountCents must be a whole number')
-    .min(ABSOLUTE_MINIMUM_CENTS, `Minimum bid is $${ABSOLUTE_MINIMUM_CENTS / 100}`),
+  amountCents:  z.number().int('amountCents must be a whole number').min(1),
   fanAvatarUrl: z.string().optional(),
 });
 
@@ -75,7 +71,7 @@ export async function POST(req: NextRequest) {
     // --- Fetch creator ---
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from('creators')
-      .select('id, slug, stripe_account_id, plan_type, max_bid_dollars')
+      .select('id, slug, stripe_account_id, plan_type, min_bid_dollars, max_bid_dollars')
       .eq('slug', creatorSlug)
       .single();
 
@@ -83,8 +79,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Creator not found' }, { status: 404 });
     }
 
-    // --- Enforce creator's max bid ---
+    // --- Enforce creator's min/max bid ---
+    const minBidCents = (creator.min_bid_dollars ?? 5) * 100;
     const maxBidCents = (creator.max_bid_dollars ?? 50) * 100;
+
+    if (amountCents < minBidCents) {
+      return NextResponse.json(
+        { error: `Minimum bid is $${creator.min_bid_dollars ?? 5}` },
+        { status: 400 }
+      );
+    }
     if (amountCents > maxBidCents) {
       return NextResponse.json(
         { error: `Maximum bid is $${creator.max_bid_dollars ?? 50} during this podium` },
@@ -100,7 +104,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- Calculate minimum bid ---
+    // --- Calculate minimum bid (creator floor, or outbid #10 if board is full) ---
     const { data: topBids } = await supabaseAdmin
       .from('bids')
       .select('amount_paid')
@@ -108,10 +112,10 @@ export async function POST(req: NextRequest) {
       .order('amount_paid', { ascending: false })
       .limit(10);
 
-    let minimumBidCents = ABSOLUTE_MINIMUM_CENTS;
+    let minimumBidCents = minBidCents;
     if (topBids && topBids.length >= 10) {
       const lowestTopBid = topBids[topBids.length - 1].amount_paid;
-      minimumBidCents = Math.max(ABSOLUTE_MINIMUM_CENTS, lowestTopBid + 100);
+      minimumBidCents = Math.max(minBidCents, lowestTopBid + 100);
     }
 
     if (amountCents < minimumBidCents) {

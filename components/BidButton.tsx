@@ -14,11 +14,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AvatarPicker from './AvatarPicker';
 import type { Bid, ModerationResult } from '@/types';
 
-const ABSOLUTE_MINIMUM_CENTS = 500;
-
 interface BidButtonProps {
   creatorSlug: string;
   currentSpots: (Bid | null)[];
+  minBidDollars?: number;
   maxBidDollars?: number;
   disabled?: boolean;
 }
@@ -48,7 +47,7 @@ function HeartbeatRing({ active }: { active: boolean }) {
   );
 }
 
-export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 50, disabled = false }: BidButtonProps) {
+export default function BidButton({ creatorSlug, currentSpots, minBidDollars = 5, maxBidDollars = 50, disabled = false }: BidButtonProps) {
   const [fanHandle, setFanHandle] = useState('');
   const [fanAvatarUrl, setFanAvatarUrl] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -61,13 +60,14 @@ export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 5
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Minimum bid: max($5, current #10 amount + $1)
+  // Minimum bid: creator floor, or outbid #10 + $1 if board is full
   const minimumBidCents = useMemo(() => {
+    const floorCents = minBidDollars * 100;
     const occupiedSpots = currentSpots.filter((s): s is Bid => s !== null);
-    if (occupiedSpots.length < 10) return ABSOLUTE_MINIMUM_CENTS;
+    if (occupiedSpots.length < 10) return floorCents;
     const lowestBid = occupiedSpots[occupiedSpots.length - 1];
-    return Math.max(ABSOLUTE_MINIMUM_CENTS, lowestBid.amount_paid + 100);
-  }, [currentSpots]);
+    return Math.max(floorCents, lowestBid.amount_paid + 100);
+  }, [currentSpots, minBidDollars]);
 
   const minimumBidDollars = (minimumBidCents / 100).toFixed(0);
 
@@ -124,7 +124,7 @@ export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 5
 
     if (!fanHandle.trim()) { setError('Enter your handle'); startCooldown(); return; }
     if (isNaN(cents) || cents < minimumBidCents) { setError(`Minimum bid is $${minimumBidDollars}`); startCooldown(); return; }
-    if (cents > maxBidDollars * 100) { setError(`Maximum bid is $${maxBidDollars} during this podium`); startCooldown(); return; }
+    if (cents > maxBidDollars * 100) { setError(`Max bid is $${maxBidDollars}`); startCooldown(); return; }
 
     setLoading(true);
     try {
@@ -225,7 +225,7 @@ export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 5
 
             {/* Minimum entry info */}
             <div className="bg-background/80 rounded-xl px-4 py-3 border border-primary/20">
-              <span className="text-xs text-muted">Minimum entry: </span>
+              <span className="text-xs text-muted">Minimum: </span>
               <motion.span
                 className="text-sm font-extrabold text-primary"
                 key={minimumBidDollars}
@@ -238,7 +238,7 @@ export default function BidButton({ creatorSlug, currentSpots, maxBidDollars = 5
                 {currentSpots.filter(Boolean).length >= 10 ? '(outbid #10 + $1)' : '(open spots available)'}
               </span>
               <span className="text-xs text-muted ml-2 opacity-60">
-                · max ${maxBidDollars} during this podium
+                · Maximum: ${maxBidDollars}
               </span>
             </div>
 

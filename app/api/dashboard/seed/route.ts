@@ -36,7 +36,7 @@ export async function POST() {
   // Look up the creator row for this user
   const { data: creator, error: creatorError } = await supabaseAdmin
     .from('creators')
-    .select('id')
+    .select('id, seed_count')
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
@@ -70,13 +70,15 @@ export async function POST() {
     );
   }
 
-  const rows = FAKE_FANS.map((fan, i) => ({
+  // Only insert up to seed_count fans (default 10)
+  const limit = creator.seed_count ?? 10;
+  const rows = FAKE_FANS.slice(0, limit).map((fan, i) => ({
     creator_id:               creator.id,
     fan_handle:               fan.handle,
     fan_avatar_url:           null,
     message:                  fan.message,
     amount_paid:              fan.amount,
-    stripe_payment_intent_id: `seed_${i + 1}`,   // seed_1 … seed_10 — identifies seeded bids
+    stripe_payment_intent_id: `seed_${i + 1}`,   // seed_1 … seed_N — identifies seeded bids
   }));
 
   const { error: insertError } = await supabaseAdmin.from('bids').insert(rows);
@@ -86,6 +88,6 @@ export async function POST() {
     return NextResponse.json({ error: insertError.message }, { status: 400 });
   }
 
-  console.log('[seed] Seeded', rows.length, 'bids for creator:', creator.id);
-  return NextResponse.json({ ok: true });
+  console.log('[seed] Seeded', rows.length, 'bids for creator:', creator.id, '(seed_count:', limit, ')');
+  return NextResponse.json({ ok: true, count: rows.length });
 }

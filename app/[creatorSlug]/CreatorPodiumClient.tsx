@@ -116,6 +116,7 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
       <BidButton
         creatorSlug={creator.slug}
         currentSpots={allSlots}
+        minBidDollars={creator.min_bid_dollars ?? 5}
         maxBidDollars={creator.max_bid_dollars ?? 50}
       />
 

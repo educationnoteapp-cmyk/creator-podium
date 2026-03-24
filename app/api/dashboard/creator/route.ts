@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   console.log('[creator] Authenticated user:', user.id);
 
-  const body = await req.json() as { slug?: string; maxBidDollars?: number };
+  const body = await req.json() as { slug?: string; minBidDollars?: number; maxBidDollars?: number };
   const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
 
   if (!slug) {
@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
   console.log('[creator] Upserting slug:', slug, 'for user:', user.id);
 
   const upsertData: Record<string, unknown> = { auth_user_id: user.id, slug };
+  if (typeof body.minBidDollars === 'number') {
+    upsertData.min_bid_dollars = body.minBidDollars;
+  }
   if (typeof body.maxBidDollars === 'number') {
     upsertData.max_bid_dollars = body.maxBidDollars;
   }

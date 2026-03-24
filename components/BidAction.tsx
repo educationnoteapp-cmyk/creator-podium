@@ -30,6 +30,7 @@ interface BidActionProps {
   /** Amount in cents for the current #10 spot (0 if fewer than 10 bids) */
   currentSpot10Amount: number;
   creatorSlug: string;
+  minBidDollars?: number;
   maxBidDollars?: number;
 }
 
@@ -37,6 +38,7 @@ export default function BidAction({
   currentKingAmount,
   currentSpot10Amount,
   creatorSlug,
+  minBidDollars = 5,
   maxBidDollars = 50,
 }: BidActionProps) {
   const MAXIMUM_BID_DOLLARS = maxBidDollars;
@@ -76,8 +78,9 @@ export default function BidAction({
     return Math.round(parsed * 100);
   }, [amountDollars]);
 
-  // Minimum: $5 floor, or #10 spot + $1 if board is full
-  const minimumCents = Math.max(500, currentSpot10Amount > 0 ? currentSpot10Amount + 100 : 500);
+  // Minimum: creator floor, or #10 spot + $1 if board is full
+  const floorCents = minBidDollars * 100;
+  const minimumCents = Math.max(floorCents, currentSpot10Amount > 0 ? currentSpot10Amount + 100 : floorCents);
   const minimumDollars = Math.floor(minimumCents / 100);
 
   // Amount needed to steal the crown ($1 more than king, or $5 if throne is empty)
@@ -201,7 +204,7 @@ export default function BidAction({
           <span className="text-slate-500">
             Minimum entry:{" "}
             <span className="text-slate-200 font-bold">${minimumDollars}</span>
-            <span className="opacity-50 ml-1">· max ${MAXIMUM_BID_DOLLARS} during this podium</span>
+            <span className="opacity-50 ml-1">· max ${MAXIMUM_BID_DOLLARS}</span>
           </span>
           <span className="text-slate-500">
             Steal crown:{" "}

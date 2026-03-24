@@ -9,6 +9,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing creator_id' }, { status: 400 })
   }
 
+  // Fetch creator for min/max bid settings
+  const { data: creator } = await supabaseAdmin
+    .from('creators')
+    .select('min_bid_dollars, max_bid_dollars')
+    .eq('id', creatorId)
+    .single()
+
   const { data: allBids, error } = await supabaseAdmin
     .from('bids')
     .select('*')
@@ -24,25 +31,36 @@ export async function GET(req: NextRequest) {
       kingHandle: '',
       avgCents: 0,
       hasSeedData: false,
-      seedBids: []
+      seedBids: [],
+      minBidDollars: creator?.min_bid_dollars ?? 5,
+      maxBidDollars: creator?.max_bid_dollars ?? 50,
     })
   }
 
-  const realBids = allBids.filter(b => !b.is_seed)
-  const seedBids = allBids.filter(b => b.is_seed)
+  // Seeds are identified by stripe_payment_intent_id starting with 'seed_'
+  // Also filter out any bids with empty fan_handle (guard against bad data)
+  const isSeed = (b: { stripe_payment_intent_id: string; fan_handle: string }) =>
+    b.stripe_payment_intent_id?.startsWith('seed_')
+
+  const validBids = allBids.filter(b => b.fan_handle && b.fan_handle.trim() !== '')
+  const realBids = validBids.filter(b => !isSeed(b))
+  const seedBids = validBids.filter(b => isSeed(b))
+
   const totalBids = realBids.length
   const totalCents = realBids.reduce((s, b) => s + b.amount_paid, 0)
   const king = realBids.length > 0 ? realBids[0] : null
   const avgCents = totalBids > 0 ? Math.round(totalCents / totalBids) : 0
 
   return NextResponse.json({
-    bids: allBids.slice(0, 10),
+    bids: validBids.slice(0, 10),
     totalBids,
     totalCents,
     kingCents: king?.amount_paid ?? 0,
     kingHandle: king?.fan_handle ?? '',
     avgCents,
     hasSeedData: seedBids.length > 0,
-    seedBids
+    seedBids,
+    minBidDollars: creator?.min_bid_dollars ?? 5,
+    maxBidDollars: creator?.max_bid_dollars ?? 50,
   })
 }
