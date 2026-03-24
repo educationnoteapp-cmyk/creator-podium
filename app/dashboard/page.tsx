@@ -487,7 +487,8 @@ export default function DashboardPage() {
     });
 
     if (res.ok) {
-      fetchAnalytics(creator.id);
+      await fetchAnalytics(creator.id);
+      setEditRows({});
     } else {
       // Revert on failure
       setEditRows(prev => ({
@@ -553,8 +554,8 @@ export default function DashboardPage() {
     setIsSavingAll(false);
     if (errors.length === 0) {
       setSaveProgress(`✓ All ${total} fans saved!`);
+      await fetchAnalytics(creator.id);
       setEditRows({});
-      fetchAnalytics(creator.id);
     } else {
       setSaveProgress(`${errors.length} error(s) — ${errors.join('; ')}`);
     }
@@ -593,8 +594,8 @@ export default function DashboardPage() {
     setSavingSettings(false);
     if (res.ok) {
       const body = await res.json() as { deletedCount?: number };
-      fetchAnalytics(creator.id);
-      fetchCreator();
+      await fetchAnalytics(creator.id);
+      await fetchCreator();
       if ((body.deletedCount ?? 0) > 0) {
         setSettingsMsg({ type: 'ok', text: `${body.deletedCount} demo fan(s) were removed because they were below the new minimum` });
       } else {
@@ -656,7 +657,7 @@ export default function DashboardPage() {
     });
     setSavingSettings(false);
     if (res.ok) {
-      fetchCreator();
+      await fetchCreator();
       setSettingsMsg({ type: 'ok', text: '✓ Saved' });
       setTimeout(() => setSettingsMsg(null), 3000);
     } else {
