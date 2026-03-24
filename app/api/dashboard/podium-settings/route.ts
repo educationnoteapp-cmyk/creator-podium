@@ -78,15 +78,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Provide seedCount or minBidDollars' }, { status: 400 });
   }
 
-  // Get creator
+  // Get creator (include max_bid_dollars so we can cross-validate min < max)
   const { data: creator, error: creatorError } = await supabaseAdmin
     .from('creators')
-    .select('id, seed_count')
+    .select('id, seed_count, min_bid_dollars, max_bid_dollars')
     .eq('auth_user_id', user.id)
     .single();
 
   if (creatorError || !creator) {
     return NextResponse.json({ error: 'Creator not found' }, { status: 404 });
+  }
+
+  // Cross-validate: min must be less than effective max
+  if (minBidDollars !== undefined) {
+    const effectiveMax = creator.max_bid_dollars ?? 50;
+    if (minBidDollars >= effectiveMax) {
+      return NextResponse.json(
+        { error: 'Minimum bid must be less than maximum bid' },
+        { status: 400 }
+      );
+    }
   }
 
   let deletedCount = 0;

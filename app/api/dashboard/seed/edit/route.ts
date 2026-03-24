@@ -12,10 +12,10 @@ export async function POST(req: NextRequest) {
   const { bidId, fanHandle, message, fanAvatarUrl, amountDollars } =
     await req.json()
 
-  // Get creator_id for this user
+  // Get creator_id and bid limits for this user
   const { data: creator } = await supabaseAdmin
     .from('creators')
-    .select('id')
+    .select('id, min_bid_dollars, max_bid_dollars')
     .eq('auth_user_id', user.id)
     .single()
 
@@ -43,9 +43,32 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Compute amountCents — multiply once only
   const amountCents = amountDollars
     ? Math.round(Number(amountDollars) * 100)
     : bid.amount_paid
+
+  // Validate absolute bounds ($1–$500)
+  if (amountCents < 100 || amountCents > 50000) {
+    return NextResponse.json({ error: 'Amount must be $1–$500' }, { status: 400 })
+  }
+
+  // Validate against creator's configured min/max
+  const minCents = (creator.min_bid_dollars ?? 1) * 100
+  const maxCents = (creator.max_bid_dollars ?? 500) * 100
+
+  if (amountCents < minCents) {
+    return NextResponse.json(
+      { error: `Amount must be at least $${creator.min_bid_dollars ?? 1}` },
+      { status: 400 }
+    )
+  }
+  if (amountCents > maxCents) {
+    return NextResponse.json(
+      { error: `Amount must be at most $${creator.max_bid_dollars ?? 500}` },
+      { status: 400 }
+    )
+  }
 
   // Update bids table
   await supabaseAdmin

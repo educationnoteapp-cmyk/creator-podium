@@ -108,60 +108,40 @@ const PLAN_CONFIG: Record<string, {
   },
 };
 
-// ── SeedFanRow ───────────────────────────────────────────────────────────────
-function SeedFanRow({ bid }: { bid: any }) {
-  const [handle, setHandle] = useState(bid.fan_handle)
-  const [message, setMessage] = useState(bid.message ?? '')
-  const [amount, setAmount] = useState(bid.amount_paid / 100)
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(bid.fan_avatar_url)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
+// ── SeedFanRow — controlled (no internal save; parent owns state) ─────────────
+interface SeedEditState {
+  handle: string;
+  message: string;
+  amount: number;
+  avatarUrl: string | null;
+  error: string;
+}
 
-  const save = async (overrideAvatar?: string) => {
-    setSaving(true)
-    setError('')
-    const res = await fetch('/api/dashboard/seed/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bidId: bid.id,
-        fanHandle: handle,
-        message,
-        fanAvatarUrl: overrideAvatar !== undefined ? overrideAvatar : avatarUrl,
-        amountDollars: amount
-      })
-    })
-    setSaving(false)
-    if (res.ok) {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } else {
-      setError('Failed to save')
-    }
-  }
+interface SeedFanRowProps {
+  bid: Bid;
+  editState: SeedEditState;
+  onChange: (bidId: string, field: keyof Omit<SeedEditState, 'error'>, value: string | number | null) => void;
+  minBidDollars: number;
+  maxBidDollars: number;
+}
 
-  const handleAvatarChange = (url: string) => {
-    setAvatarUrl(url)
-    save(url)
-  }
-
+function SeedFanRow({ bid, editState, onChange, minBidDollars, maxBidDollars }: SeedFanRowProps) {
   return (
-    <div className="flex gap-2 items-center bg-slate-800 rounded-xl p-3 flex-wrap">
+    <div className="flex gap-2 items-start bg-slate-800 rounded-xl p-3 flex-wrap">
       <AvatarPicker
-        fanHandle={handle}
-        value={avatarUrl}
-        onChange={handleAvatarChange}
+        fanHandle={editState.handle}
+        value={editState.avatarUrl}
+        onChange={(url) => onChange(bid.id, 'avatarUrl', url)}
       />
       <input
-        value={handle}
-        onChange={e => setHandle(e.target.value)}
+        value={editState.handle}
+        onChange={e => onChange(bid.id, 'handle', e.target.value)}
         placeholder="Handle"
         className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm w-32 min-w-0"
       />
       <input
-        value={message}
-        onChange={e => setMessage(e.target.value)}
+        value={editState.message}
+        onChange={e => onChange(bid.id, 'message', e.target.value)}
         placeholder="Message"
         className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm flex-1 min-w-0"
       />
@@ -169,21 +149,16 @@ function SeedFanRow({ bid }: { bid: any }) {
         <span className="text-slate-400 text-sm">$</span>
         <input
           type="number"
-          value={amount}
-          min={5}
-          max={50}
-          onChange={e => setAmount(Number(e.target.value))}
+          value={editState.amount}
+          min={minBidDollars}
+          max={maxBidDollars}
+          onChange={e => onChange(bid.id, 'amount', Number(e.target.value))}
           className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm w-16"
         />
       </div>
-      <button
-        onClick={() => save()}
-        disabled={saving}
-        className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-3 py-1 text-sm font-medium disabled:opacity-50 min-w-[60px]"
-      >
-        {saving ? '...' : saved ? '✓ Saved' : 'Save'}
-      </button>
-      {error && <span className="text-red-400 text-xs">{error}</span>}
+      {editState.error && (
+        <span className="w-full text-red-400 text-xs mt-0.5">{editState.error}</span>
+      )}
     </div>
   )
 }
@@ -233,6 +208,14 @@ export default function DashboardPage() {
 
   // Raw bids (top-10 for podium display)
   const [rawBids, setRawBids] = useState<Bid[]>([]);
+
+  // Manage Demo Fans — lifted edit state
+  const [editRows, setEditRows] = useState<Record<string, SeedEditState>>({});
+  const [isSavingAll, setIsSavingAll] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<string | null>(null);
+
+  // Confirm dialog
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   // ── Auth check ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -413,8 +396,123 @@ export default function DashboardPage() {
     setSeeding(false);
   };
 
+  // ── Sync editRows whenever analytics.seedBids changes ─────────────────────
+  useEffect(() => {
+    setEditRows(prev => {
+      const next = { ...prev };
+      for (const b of analytics.seedBids) {
+        if (!next[b.id]) {
+          next[b.id] = {
+            handle: b.fan_handle,
+            message: b.message ?? '',
+            amount: b.amount_paid / 100,
+            avatarUrl: b.fan_avatar_url,
+            error: '',
+          };
+        }
+      }
+      // Remove keys no longer in seedBids
+      const validIds = new Set(analytics.seedBids.map(b => b.id));
+      for (const key of Object.keys(next)) {
+        if (!validIds.has(key)) delete next[key];
+      }
+      return next;
+    });
+  }, [analytics.seedBids]);
+
+  // ── Edit row change handler ────────────────────────────────────────────────
+  const handleRowChange = useCallback((bidId: string, field: keyof Omit<SeedEditState, 'error'>, value: string | number | null) => {
+    setEditRows(prev => ({
+      ...prev,
+      [bidId]: { ...prev[bidId], [field]: value, error: '' },
+    }));
+  }, []);
+
+  // ── Save all demo fans ─────────────────────────────────────────────────────
+  const handleSaveAll = async () => {
+    if (!creator) return;
+    // Validate all rows first
+    let hasErrors = false;
+    const validated = { ...editRows };
+    for (const bid of analytics.seedBids) {
+      const row = editRows[bid.id];
+      if (!row) continue;
+      if (!row.handle.trim()) {
+        validated[bid.id] = { ...row, error: 'Handle cannot be empty' };
+        hasErrors = true;
+      } else if (row.amount < minBidDollars) {
+        validated[bid.id] = { ...row, error: `Min $${minBidDollars}` };
+        hasErrors = true;
+      } else if (row.amount > maxBidDollars) {
+        validated[bid.id] = { ...row, error: `Max $${maxBidDollars}` };
+        hasErrors = true;
+      }
+    }
+    if (hasErrors) {
+      setEditRows(validated);
+      setSaveProgress('Fix errors above before saving');
+      return;
+    }
+
+    setIsSavingAll(true);
+    const total = analytics.seedBids.length;
+    const errors: string[] = [];
+
+    for (let i = 0; i < analytics.seedBids.length; i++) {
+      const bid = analytics.seedBids[i];
+      const row = editRows[bid.id];
+      if (!row) continue;
+      setSaveProgress(`Saving ${i + 1}/${total}…`);
+      const res = await fetch('/api/dashboard/seed/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bidId: bid.id,
+          fanHandle: row.handle,
+          message: row.message,
+          fanAvatarUrl: row.avatarUrl,
+          amountDollars: row.amount,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        errors.push(`${row.handle}: ${body.error ?? 'Failed'}`);
+      }
+    }
+
+    setIsSavingAll(false);
+    if (errors.length === 0) {
+      setSaveProgress(`✓ All ${total} fans saved!`);
+      setEditRows({});
+      fetchAnalytics(creator.id);
+    } else {
+      setSaveProgress(`${errors.length} error(s) — ${errors.join('; ')}`);
+    }
+    setTimeout(() => setSaveProgress(null), 5000);
+  };
+
+  // ── Reset demo fans to 10 defaults ─────────────────────────────────────────
+  const handleResetToDefault = () => {
+    setConfirmDialog({
+      message: 'This will replace all demo fans with the original 10 defaults. Continue?',
+      onConfirm: async () => {
+        setSaveProgress('Resetting to defaults…');
+        const res = await fetch('/api/dashboard/seed/reset', { method: 'POST' });
+        if (res.ok) {
+          setSeedCount(10);
+          setSaveProgress('✓ Reset to 10 default fans!');
+          setEditRows({});
+          fetchAnalytics(creator!.id);
+        } else {
+          setSaveProgress('Failed to reset');
+        }
+        setTimeout(() => setSaveProgress(null), 4000);
+      },
+    });
+  };
+
   // ── Save min bid (via podium-settings so it can prune seed fans below floor) ─
-  const handleSaveMinBid = async () => {
+  const doSaveMinBid = async () => {
     if (!creator) return;
     setSavingSettings(true);
     setSettingsMsg(null);
@@ -435,13 +533,35 @@ export default function DashboardPage() {
       }
       setTimeout(() => setSettingsMsg(null), 5000);
     } else {
-      setSettingsMsg({ type: 'err', text: 'Failed to save' });
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      setSettingsMsg({ type: 'err', text: body.error ?? 'Failed to save' });
+    }
+  };
+
+  const handleSaveMinBid = async () => {
+    if (!creator) return;
+    if (minBidDollars >= maxBidDollars) {
+      setSettingsMsg({ type: 'err', text: 'Minimum bid must be less than maximum bid' });
+      return;
+    }
+    const belowMinCount = analytics.seedBids.filter(b => b.amount_paid < minBidDollars * 100).length;
+    if (belowMinCount > 0) {
+      setConfirmDialog({
+        message: `⚠️ This will permanently delete ${belowMinCount} demo fan(s) below the new minimum. Are you sure?`,
+        onConfirm: doSaveMinBid,
+      });
+    } else {
+      await doSaveMinBid();
     }
   };
 
   // ── Save max bid dollars ───────────────────────────────────────────────────
   const handleSaveMaxBid = async () => {
     if (!creator) return;
+    if (maxBidDollars <= minBidDollars) {
+      setSettingsMsg({ type: 'err', text: 'Maximum bid must be greater than minimum bid' });
+      return;
+    }
     setSavingSettings(true);
     setSettingsMsg(null);
     const res = await fetch('/api/dashboard/creator', {
@@ -459,7 +579,7 @@ export default function DashboardPage() {
   };
 
   // ── Save seed count ────────────────────────────────────────────────────────
-  const handleSaveSeedCount = async () => {
+  const doSaveSeedCount = async () => {
     if (!creator) return;
     setSavingSettings(true);
     setSettingsMsg(null);
@@ -470,12 +590,27 @@ export default function DashboardPage() {
     });
     setSavingSettings(false);
     if (res.ok) {
+      setCreator((c) => c ? { ...c, seed_count: seedCount } : c);
       setSettingsMsg({ type: 'ok', text: '✓ Saved' });
       setTimeout(() => setSettingsMsg(null), 3000);
       fetchAnalytics(creator.id);
     } else {
       const body = await res.json().catch(() => ({})) as { error?: string };
       setSettingsMsg({ type: 'err', text: body.error ?? 'Failed to save' });
+    }
+  };
+
+  const handleSaveSeedCount = async () => {
+    if (!creator) return;
+    const currentCount = creator.seed_count ?? 10;
+    if (seedCount < currentCount) {
+      const delta = currentCount - seedCount;
+      setConfirmDialog({
+        message: `⚠️ This will permanently delete ${delta} demo fan(s). Are you sure?`,
+        onConfirm: doSaveSeedCount,
+      });
+    } else {
+      await doSaveSeedCount();
     }
   };
 
@@ -502,6 +637,33 @@ export default function DashboardPage() {
   // ── UI ─────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950">
+
+      {/* ── Confirm Dialog ──────────────────────────────────────────────────── */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4"
+          >
+            <p className="text-white font-semibold leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-500 transition-colors"
+              >
+                Yes, delete them
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* ── SECTION 1: Header ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-sm">
@@ -1005,18 +1167,66 @@ export default function DashboardPage() {
         </motion.section>
 
         {/* ── SECTION 4b: Manage Demo Fans ─────────────────────────────────── */}
-        {analytics?.hasSeedData && (
-          <div className="bg-slate-900 rounded-2xl p-6 border border-slate-700 mt-6">
-            <h2 className="text-lg font-bold text-white mb-1">
-              🎭 Manage Demo Fans
-            </h2>
-            <p className="text-slate-400 text-sm mb-4">
-              Edit your demo fans. Real paying fans cannot be edited.
-            </p>
-            <div className="space-y-3">
-              {analytics.seedBids.map((bid: any) => (
-                <SeedFanRow key={bid.id} bid={bid} />
-              ))}
+        {hasSeedData && (
+          <div className="bg-slate-900 rounded-2xl p-6 border border-slate-700 mt-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-white mb-0.5">🎭 Manage Demo Fans</h2>
+              <p className="text-slate-400 text-sm">
+                Edit your demo fans below. Real paying fans cannot be edited.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {analytics.seedBids.map((bid) => {
+                const row = editRows[bid.id] ?? {
+                  handle: bid.fan_handle, message: bid.message ?? '',
+                  amount: bid.amount_paid / 100, avatarUrl: bid.fan_avatar_url, error: '',
+                };
+                return (
+                  <SeedFanRow
+                    key={bid.id}
+                    bid={bid}
+                    editState={row}
+                    onChange={handleRowChange}
+                    minBidDollars={minBidDollars}
+                    maxBidDollars={maxBidDollars}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Save progress / error text */}
+            {saveProgress && (
+              <p className={`text-sm font-medium ${saveProgress.startsWith('✓') ? 'text-green-400' : saveProgress.startsWith('Fix') || saveProgress.includes('error') ? 'text-red-400' : 'text-slate-300'}`}>
+                {saveProgress}
+              </p>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-3 pt-1">
+              <motion.button
+                onClick={handleSaveAll}
+                disabled={isSavingAll}
+                className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white
+                           bg-indigo-600 hover:bg-indigo-500
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {isSavingAll ? saveProgress ?? 'Saving…' : '💾 Save All Changes'}
+              </motion.button>
+
+              <motion.button
+                onClick={handleResetToDefault}
+                disabled={isSavingAll}
+                className="px-5 py-2.5 rounded-xl font-semibold text-sm text-slate-300
+                           border border-slate-600 hover:border-red-500/60 hover:text-red-400
+                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                🔄 Reset All to Default
+              </motion.button>
             </div>
           </div>
         )}
