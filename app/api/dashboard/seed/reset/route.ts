@@ -7,16 +7,16 @@ import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 const FAKE_FANS = [
-  { handle: '@CryptoChad',       message: 'TO THE MOON 🚀',                   amount: 1200 },
-  { handle: '@BigSpenderSteve',  message: 'I sold my couch for this',          amount: 1100 },
-  { handle: '@DadJokeDave',      message: "Hi Hungry, I'm on the podium",       amount: 1000 },
-  { handle: '@MemeQueen99',      message: 'This is fine 🔥',                   amount:  900 },
-  { handle: '@TouchGrassPlease', message: 'Outside is overrated anyway',        amount:  800 },
-  { handle: '@NFTBro2024',       message: 'My jpeg told me to do this',         amount:  700 },
-  { handle: '@YOLOKing',         message: 'You only live once',                 amount:  700 },
-  { handle: '@VibeCheck',        message: 'Vibe: immaculate ✅',                amount:  600 },
-  { handle: '@NoSleepCrew',      message: "It's 3am and I have no regrets",     amount:  600 },
-  { handle: '@JustHereToWatch',  message: 'Here for the drama honestly',        amount:  500 },
+  { handle: '@CryptoChad',       seed: 'felix', message: 'TO THE MOON 🚀',                   amount: 1200 },
+  { handle: '@BigSpenderSteve',  seed: 'aneka', message: 'I sold my couch for this',          amount: 1100 },
+  { handle: '@DadJokeDave',      seed: 'bob',   message: "Hi Hungry, I'm on the podium",       amount: 1000 },
+  { handle: '@MemeQueen99',      seed: 'sara',  message: 'This is fine 🔥',                   amount:  900 },
+  { handle: '@TouchGrassPlease', seed: 'mike',  message: 'Outside is overrated anyway',        amount:  800 },
+  { handle: '@NFTBro2024',       seed: 'luna',  message: 'My jpeg told me to do this',         amount:  700 },
+  { handle: '@YOLOKing',         seed: 'jake',  message: 'You only live once',                 amount:  700 },
+  { handle: '@VibeCheck',        seed: 'emma',  message: 'Vibe: immaculate ✅',                amount:  600 },
+  { handle: '@NoSleepCrew',      seed: 'alex',  message: "It's 3am and I have no regrets",     amount:  600 },
+  { handle: '@JustHereToWatch',  seed: 'zoe',   message: 'Here for the drama honestly',        amount:  500 },
 ];
 
 export async function POST() {
@@ -42,23 +42,23 @@ export async function POST() {
     .from('bids')
     .delete()
     .eq('creator_id', creator.id)
-    .like('stripe_payment_intent_id', 'seed_%');
+    .eq('is_seed', true);
 
   // 2. Delete corresponding podium_spots
   await supabaseAdmin
     .from('podium_spots')
     .delete()
-    .eq('creator_id', creator.id)
-    .like('stripe_payment_intent_id', 'seed_%');
+    .eq('creator_id', creator.id);
 
   // 3. Insert all 10 default demo fans
   const rows = FAKE_FANS.map((fan, i) => ({
     creator_id:               creator.id,
     fan_handle:               fan.handle,
-    fan_avatar_url:           null,
+    fan_avatar_url:           `https://api.dicebear.com/7.x/avataaars/svg?seed=${fan.seed}`,
     message:                  fan.message,
     amount_paid:              fan.amount,
     stripe_payment_intent_id: `seed_${i + 1}`,
+    is_seed:                  true,
   }));
 
   const { error: insertError } = await supabaseAdmin.from('bids').insert(rows);
@@ -73,8 +73,6 @@ export async function POST() {
     .eq('creator_id', creator.id)
     .order('amount_paid', { ascending: false })
     .limit(10);
-
-  await supabaseAdmin.from('podium_spots').delete().eq('creator_id', creator.id);
 
   if (allBids && allBids.length > 0) {
     const newSpots = allBids.map((bid, idx) => ({

@@ -52,10 +52,10 @@ export async function POST() {
 
   console.log('[seed] Found creator:', creator.id);
 
-  // Guard: only seed an empty podium
-  const { count, error: countError } = await supabaseAdmin
+  // Guard: only seed if no real (non-seed) bids exist
+  const { data: existingBids, error: countError } = await supabaseAdmin
     .from('bids')
-    .select('id', { count: 'exact', head: true })
+    .select('id, is_seed')
     .eq('creator_id', creator.id);
 
   if (countError) {
@@ -63,7 +63,8 @@ export async function POST() {
     return NextResponse.json({ error: countError.message }, { status: 500 });
   }
 
-  if ((count ?? 0) > 0) {
+  const realBids = (existingBids ?? []).filter(b => !b.is_seed);
+  if (realBids.length > 0) {
     return NextResponse.json(
       { error: 'Podium already has bids — seeding disabled' },
       { status: 409 },

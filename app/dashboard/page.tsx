@@ -295,6 +295,17 @@ export default function DashboardPage() {
     setSeedCount(row.seed_count ?? 10);
   }
 
+  // ── Reload creator row from DB (called after settings saves) ──────────────
+  const fetchCreator = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('creators')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .single();
+    if (data) hydrate(data as CreatorRow);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Analytics ──────────────────────────────────────────────────────────────
   // Uses /api/podium/bids (supabaseAdmin) to bypass RLS on the bids table.
   // API makes two queries: allBids (for correct totals) + top10 (for display).
@@ -524,8 +535,8 @@ export default function DashboardPage() {
     setSavingSettings(false);
     if (res.ok) {
       const body = await res.json() as { deletedCount?: number };
-      setCreator((c) => c ? { ...c, min_bid_dollars: minBidDollars } : c);
       fetchAnalytics(creator.id);
+      fetchCreator();
       if ((body.deletedCount ?? 0) > 0) {
         setSettingsMsg({ type: 'ok', text: `${body.deletedCount} demo fan(s) were removed because they were below the new minimum` });
       } else {
@@ -571,6 +582,7 @@ export default function DashboardPage() {
     });
     setSavingSettings(false);
     if (res.ok) {
+      fetchCreator();
       setSettingsMsg({ type: 'ok', text: '✓ Saved' });
       setTimeout(() => setSettingsMsg(null), 3000);
     } else {
@@ -590,10 +602,10 @@ export default function DashboardPage() {
     });
     setSavingSettings(false);
     if (res.ok) {
-      setCreator((c) => c ? { ...c, seed_count: seedCount } : c);
+      fetchAnalytics(creator.id);
+      fetchCreator();
       setSettingsMsg({ type: 'ok', text: '✓ Saved' });
       setTimeout(() => setSettingsMsg(null), 3000);
-      fetchAnalytics(creator.id);
     } else {
       const body = await res.json().catch(() => ({})) as { error?: string };
       setSettingsMsg({ type: 'err', text: body.error ?? 'Failed to save' });

@@ -37,10 +37,10 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Seeds are identified by stripe_payment_intent_id starting with 'seed_'
+  // Seeds are identified by the is_seed column
   // Also filter out any bids with empty fan_handle (guard against bad data)
-  const isSeed = (b: { stripe_payment_intent_id: string; fan_handle: string }) =>
-    b.stripe_payment_intent_id?.startsWith('seed_')
+  const isSeed = (b: { is_seed: boolean | null; fan_handle: string }) =>
+    b.is_seed === true
 
   const validBids = allBids.filter(b => b.fan_handle && b.fan_handle.trim() !== '')
   const realBids = validBids.filter(b => !isSeed(b))

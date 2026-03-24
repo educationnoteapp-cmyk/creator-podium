@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   // Verify bid belongs to this creator
   const { data: bid } = await supabaseAdmin
     .from('bids')
-    .select('id, stripe_payment_intent_id, amount_paid')
+    .select('id, is_seed, stripe_payment_intent_id, amount_paid')
     .eq('id', bidId)
     .eq('creator_id', creator.id)
     .single()
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Only allow editing seed bids
-  if (!bid.stripe_payment_intent_id?.startsWith('seed_')) {
+  if (!bid.is_seed) {
     return NextResponse.json(
       { error: 'Cannot edit real fan bids' },
       { status: 403 }
