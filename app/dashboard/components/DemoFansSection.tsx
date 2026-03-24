@@ -41,11 +41,13 @@ export default function DemoFansSection({
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // ── Sync editRows from seedBids (server data → local state) ─────────────
+  // Always repopulate from fresh server data, EXCEPT rows with a pending
+  // debounce timer (user is actively typing — don't overwrite their input).
   useEffect(() => {
     setEditRows(prev => {
       const next = { ...prev };
       for (const b of seedBids) {
-        if (!next[b.id]) {
+        if (!debounceTimers.current[b.id]) {
           next[b.id] = {
             handle: b.fan_handle,
             message: b.message ?? '',

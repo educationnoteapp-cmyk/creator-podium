@@ -353,8 +353,11 @@ export default function DashboardPage() {
 
   // ── Refresh analytics callback for DemoFansSection ──────────────────────
   const handleDemoRefresh = useCallback(async () => {
-    if (creator?.id) await fetchAnalytics(creator.id);
-  }, [creator?.id, fetchAnalytics]);
+    if (creator?.id) {
+      await fetchAnalytics(creator.id);
+      await fetchCreator();
+    }
+  }, [creator?.id, fetchAnalytics, fetchCreator]);
 
   // ── Save min bid (via podium-settings so it can prune seed fans below floor) ─
   const doSaveMinBid = async () => {
