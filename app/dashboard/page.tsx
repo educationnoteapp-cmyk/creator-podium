@@ -413,6 +413,32 @@ export default function DashboardPage() {
     setSeeding(false);
   };
 
+  // ── Save min bid (via podium-settings so it can prune seed fans below floor) ─
+  const handleSaveMinBid = async () => {
+    if (!creator) return;
+    setSavingSettings(true);
+    setSettingsMsg(null);
+    const res = await fetch('/api/dashboard/podium-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minBidDollars }),
+    });
+    setSavingSettings(false);
+    if (res.ok) {
+      const body = await res.json() as { deletedCount?: number };
+      setCreator((c) => c ? { ...c, min_bid_dollars: minBidDollars } : c);
+      fetchAnalytics(creator.id);
+      if ((body.deletedCount ?? 0) > 0) {
+        setSettingsMsg({ type: 'ok', text: `${body.deletedCount} demo fan(s) were removed because they were below the new minimum` });
+      } else {
+        setSettingsMsg({ type: 'ok', text: '✓ Saved' });
+      }
+      setTimeout(() => setSettingsMsg(null), 5000);
+    } else {
+      setSettingsMsg({ type: 'err', text: 'Failed to save' });
+    }
+  };
+
   // ── Save max bid dollars ───────────────────────────────────────────────────
   const handleSaveMaxBid = async () => {
     if (!creator) return;
@@ -421,7 +447,7 @@ export default function DashboardPage() {
     const res = await fetch('/api/dashboard/creator', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: creator.slug, minBidDollars, maxBidDollars }),
+      body: JSON.stringify({ slug: creator.slug, maxBidDollars }),
     });
     setSavingSettings(false);
     if (res.ok) {
@@ -780,7 +806,7 @@ export default function DashboardPage() {
           {/* Min bid */}
           <div>
             <label className="text-[10px] text-slate-500 tracking-widest uppercase block mb-1.5 font-medium">
-              Minimum bid allowed ($)
+              Minimum bid ($)
             </label>
             <div className="flex items-center gap-3">
               <input
@@ -793,7 +819,7 @@ export default function DashboardPage() {
                            focus:outline-none focus:border-indigo-500/60 transition-all"
               />
               <motion.button
-                onClick={handleSaveMaxBid}
+                onClick={handleSaveMinBid}
                 disabled={savingSettings || !creator}
                 className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white
                            bg-indigo-600 hover:bg-indigo-500
@@ -804,6 +830,14 @@ export default function DashboardPage() {
                 {savingSettings ? '…' : 'Save'}
               </motion.button>
             </div>
+            {(() => {
+              const belowMin = analytics.seedBids.filter(b => b.amount_paid < minBidDollars * 100).length;
+              return belowMin > 0 ? (
+                <p className="text-[11px] text-amber-400 mt-1.5">
+                  ⚠ {belowMin} demo fan{belowMin !== 1 ? 's' : ''} are below this minimum and will be removed
+                </p>
+              ) : null;
+            })()}
           </div>
 
           {/* Max bid */}

@@ -83,9 +83,9 @@ export default function BidAction({
   const minimumCents = Math.max(floorCents, currentSpot10Amount > 0 ? currentSpot10Amount + 100 : floorCents);
   const minimumDollars = Math.floor(minimumCents / 100);
 
-  // Amount needed to steal the crown ($1 more than king, or $5 if throne is empty)
+  // Amount needed to steal the crown ($1 more than king, or creator minimum if throne is empty)
   const stealCrownDollars =
-    currentKingAmount > 0 ? Math.floor(currentKingAmount / 100) + 1 : 5;
+    currentKingAmount > 0 ? Math.floor(currentKingAmount / 100) + 1 : minBidDollars;
 
   // RADIOACTIVE: typed amount beats the king
   const isRadioactive = currentKingAmount > 0 && amountCents > currentKingAmount;
