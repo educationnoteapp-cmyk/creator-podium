@@ -226,25 +226,35 @@ export default function DemoFansSection({
     newCents = Math.max(minBidDollars * 100, Math.min(maxBidDollars * 100, newCents));
     const newDollars = newCents / 100;
 
-    // Update local state immediately
+    // Use editRowsRef for live unsaved edits, fall back to committed server data
+    const row = editRowsRef.current[fromId];
+    const handle    = row?.handle    ?? draggedBid.fan_handle;
+    const message   = row?.message   ?? draggedBid.message ?? '';
+    const avatarUrl = row?.avatarUrl ?? draggedBid.fan_avatar_url;
+    const isActive  = row?.isActive  ?? (draggedBid.is_active !== false);
+
+    // Optimistic local update
     setEditRows(prev => ({
       ...prev,
-      [fromId]: {
-        ...(prev[fromId] ?? {
-          handle: draggedBid.fan_handle,
-          message: draggedBid.message ?? '',
-          avatarUrl: draggedBid.fan_avatar_url,
-          isActive: draggedBid.is_active !== false,
-          error: '',
-          amount: draggedBid.amount_paid / 100,
-        }),
-        amount: newDollars,
-      },
+      [fromId]: { ...(row ?? { handle, message, avatarUrl, isActive, error: '' }), amount: newDollars },
     }));
 
-    // Save with new amount
-    await saveFan(fromId, newDollars);
-  }, [seedBids, minBidDollars, maxBidDollars, saveFan]);
+    setFanSaveStatus(prev => ({ ...prev, [fromId]: 'saving' }));
+    const res = await fetch('/api/dashboard/seed/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bidId: fromId, fanHandle: handle, message, fanAvatarUrl: avatarUrl, amountDollars: newDollars, isActive }),
+    });
+    if (res.ok) {
+      setFanSaveStatus(prev => ({ ...prev, [fromId]: 'saved' }));
+      setTimeout(() => setFanSaveStatus(prev => { const n = { ...prev }; delete n[fromId]; return n; }), 2000);
+      setEditRows(prev => { const n = { ...prev }; delete n[fromId]; return n; });
+      await onRefresh();
+    } else {
+      setFanSaveStatus(prev => ({ ...prev, [fromId]: 'error' }));
+      setTimeout(() => setFanSaveStatus(prev => { const n = { ...prev }; delete n[fromId]; return n; }), 3000);
+    }
+  }, [seedBids, minBidDollars, maxBidDollars, onRefresh]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (

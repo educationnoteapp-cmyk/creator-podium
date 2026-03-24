@@ -266,6 +266,8 @@ export default function DashboardPage() {
       avgCents?: number;
       hasSeedData?: boolean;
       realFansOnPodium?: number;
+      minBidDollars?: number;
+      maxBidDollars?: number;
     };
 
     console.log('Analytics response:', body);
@@ -283,6 +285,8 @@ export default function DashboardPage() {
       realFansOnPodium: body.realFansOnPodium ?? 0,
     });
     setRawBids(body.bids ?? []);
+    if (body.minBidDollars !== undefined) setMinBidDollars(body.minBidDollars);
+    if (body.maxBidDollars !== undefined) setMaxBidDollars(body.maxBidDollars);
   }, []);
 
   useEffect(() => {

@@ -13,7 +13,7 @@ import Podium from '@/components/Podium';
 import Leaderboard from '@/components/Leaderboard';
 import BidButton from '@/components/BidButton';
 import type { Creator, Bid } from '@/types';
-import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 interface Props {
   creator: Creator;
@@ -32,7 +32,7 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
   }, [creator.id, creator.slug, initialBids.length]);
 
   // Re-fetch bids via server API route (uses supabaseAdmin to bypass RLS)
-  const fetchBids = useCallback(async () => {
+  const fetchBids = useCallback(async (silent = false) => {
     console.log('[podium-client] Re-fetching bids for creator:', creator.id);
     const res = await fetch(`/api/podium/bids?creator_id=${creator.id}`);
     if (!res.ok) {
@@ -43,8 +43,10 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
     if (body.bids) {
       console.log('[podium-client] Fetched', body.bids.length, 'bids');
       setBids(body.bids);
-      setNewBidFlash(true);
-      setTimeout(() => setNewBidFlash(false), 600);
+      if (!silent) {
+        setNewBidFlash(true);
+        setTimeout(() => setNewBidFlash(false), 600);
+      }
     }
     if (body.minBidDollars !== undefined) setMinBidDollars(body.minBidDollars);
     if (body.maxBidDollars !== undefined) setMaxBidDollars(body.maxBidDollars);
@@ -56,17 +58,24 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'bids',
           filter: `creator_id=eq.${creator.id}`,
         },
-        (_payload: RealtimePostgresInsertPayload<Bid>) => { fetchBids(); }
+        (_payload: RealtimePostgresChangesPayload<Bid>) => { fetchBids(true); }
       )
       .subscribe();
 
     return () => { supabaseBrowser.removeChannel(channel); };
   }, [creator.id, fetchBids]);
+
+  // Re-sync when user returns to this tab (covers seed edits made in another tab)
+  useEffect(() => {
+    const onFocus = () => fetchBids(true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [fetchBids]);
 
   const allSlots: (Bid | null)[] = Array.from({ length: 10 }, (_, i) => bids[i] ?? null);
   const podiumSpots = allSlots.slice(0, 3);
