@@ -23,6 +23,8 @@ interface Props {
 export default function CreatorPodiumClient({ creator, initialBids }: Props) {
   const [bids, setBids] = useState<Bid[]>(initialBids);
   const [newBidFlash, setNewBidFlash] = useState(false);
+  const [minBidDollars, setMinBidDollars] = useState(creator.min_bid_dollars ?? 5);
+  const [maxBidDollars, setMaxBidDollars] = useState(creator.max_bid_dollars ?? 50);
 
   useEffect(() => {
     console.log('[podium-client] Mounted. initialBids length:', initialBids.length);
@@ -37,13 +39,15 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
       console.error('[podium-client] fetchBids failed:', res.status);
       return;
     }
-    const body = await res.json() as { bids?: Bid[] };
+    const body = await res.json() as { bids?: Bid[]; minBidDollars?: number; maxBidDollars?: number };
     if (body.bids) {
       console.log('[podium-client] Fetched', body.bids.length, 'bids');
       setBids(body.bids);
       setNewBidFlash(true);
       setTimeout(() => setNewBidFlash(false), 600);
     }
+    if (body.minBidDollars !== undefined) setMinBidDollars(body.minBidDollars);
+    if (body.maxBidDollars !== undefined) setMaxBidDollars(body.maxBidDollars);
   }, [creator.id]);
 
   useEffect(() => {
@@ -116,8 +120,8 @@ export default function CreatorPodiumClient({ creator, initialBids }: Props) {
       <BidButton
         creatorSlug={creator.slug}
         currentSpots={allSlots}
-        minBidDollars={creator.min_bid_dollars ?? 5}
-        maxBidDollars={creator.max_bid_dollars ?? 50}
+        minBidDollars={minBidDollars}
+        maxBidDollars={maxBidDollars}
       />
 
       {/* Live indicator */}

@@ -71,6 +71,14 @@ export async function POST() {
     );
   }
 
+  // Delete any existing seed bids first — prevents duplicate key constraint
+  // (stripe_payment_intent_id is UNIQUE; seed_1…seed_N may already exist)
+  await supabaseAdmin
+    .from('bids')
+    .delete()
+    .eq('creator_id', creator.id)
+    .eq('is_seed', true);
+
   // Only insert up to seed_count fans (default 10)
   const limit = creator.seed_count ?? 10;
   const rows = FAKE_FANS.slice(0, limit).map((fan, i) => ({
@@ -79,7 +87,9 @@ export async function POST() {
     fan_avatar_url:           null,
     message:                  fan.message,
     amount_paid:              fan.amount,
-    stripe_payment_intent_id: `seed_${i + 1}`,   // seed_1 … seed_N — identifies seeded bids
+    stripe_payment_intent_id: `seed_${i + 1}`,
+    is_seed:                  true,
+    is_active:                true,
   }));
 
   const { error: insertError } = await supabaseAdmin.from('bids').insert(rows);
@@ -87,6 +97,30 @@ export async function POST() {
   if (insertError) {
     console.error('[seed] Insert error:', insertError.message);
     return NextResponse.json({ error: insertError.message }, { status: 400 });
+  }
+
+  // Rebuild podium_spots from new seed bids
+  const { data: topBids } = await supabaseAdmin
+    .from('bids')
+    .select('*')
+    .eq('creator_id', creator.id)
+    .or('is_active.is.null,is_active.eq.true')
+    .order('amount_paid', { ascending: false })
+    .limit(10);
+
+  await supabaseAdmin.from('podium_spots').delete().eq('creator_id', creator.id);
+  if (topBids && topBids.length > 0) {
+    await supabaseAdmin.from('podium_spots').insert(
+      topBids.map((b, idx) => ({
+        creator_id:               creator.id,
+        position:                 idx + 1,
+        fan_handle:               b.fan_handle,
+        fan_avatar_url:           b.fan_avatar_url,
+        message:                  b.message,
+        amount_paid:              b.amount_paid,
+        stripe_payment_intent_id: b.stripe_payment_intent_id,
+      }))
+    );
   }
 
   console.log('[seed] Seeded', rows.length, 'bids for creator:', creator.id, '(seed_count:', limit, ')');

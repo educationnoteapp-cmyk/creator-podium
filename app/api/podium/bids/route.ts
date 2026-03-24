@@ -38,35 +38,17 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Fetch podium_spots to determine which seed fans are currently showing
-  const { data: podiumSpots } = await supabaseAdmin
-    .from('podium_spots')
-    .select('stripe_payment_intent_id')
-    .eq('creator_id', creatorId)
-
-  const podiumStripeIds = new Set(podiumSpots?.map(s => s.stripe_payment_intent_id) ?? [])
-
-  // Seeds are identified by the is_seed column
-  // Also filter out any bids with empty fan_handle (guard against bad data)
-  const isSeed = (b: { is_seed: boolean | null; fan_handle: string }) =>
-    b.is_seed === true
-
+  // Filter out bids with empty fan_handle (guard against bad data)
   const validBids = allBids.filter(b => b.fan_handle && b.fan_handle.trim() !== '')
-  const realBids = validBids.filter(b => !isSeed(b))
+  const realBids = validBids.filter(b => b.is_seed !== true)
 
-  // CHANGE 5: Only include seed fans that are:
-  // 1. Currently in podium_spots (still showing on podium)
-  // 2. is_active = false (manually disabled by creator — shown in edit view)
-  // Displaced seed fans (pushed off by real fans, still is_active=true) are excluded.
-  const seedBids = validBids.filter(b =>
-    isSeed(b) && (
-      podiumStripeIds.has(b.stripe_payment_intent_id) ||
-      b.is_active === false
-    )
-  )
+  // Bug 2 fix: all seed bids visible to dashboard (simple is_seed check)
+  const seedBids = validBids.filter(b => b.is_seed === true)
 
-  // Count real fans currently on the podium
-  const realFansOnPodium = realBids.filter(b => podiumStripeIds.has(b.stripe_payment_intent_id)).length
+  // Bug 6 fix: only active bids on podium display (exclude inactive seeds)
+  const activeBids = validBids.filter(b => b.is_seed !== true || b.is_active !== false)
+
+  const realFansOnPodium = Math.min(realBids.length, 10)
 
   const totalBids = realBids.length
   const totalCents = realBids.reduce((s, b) => s + b.amount_paid, 0)
@@ -74,7 +56,7 @@ export async function GET(req: NextRequest) {
   const avgCents = totalBids > 0 ? Math.round(totalCents / totalBids) : 0
 
   return NextResponse.json({
-    bids: validBids.filter(b => !isSeed(b) || podiumStripeIds.has(b.stripe_payment_intent_id)).slice(0, 10),
+    bids: activeBids.slice(0, 10),
     totalBids,
     totalCents,
     kingCents: king?.amount_paid ?? 0,

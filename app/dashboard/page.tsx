@@ -222,7 +222,6 @@ export default function DashboardPage() {
   // Podium settings
   const [minBidDollars, setMinBidDollars] = useState(5);
   const [maxBidDollars, setMaxBidDollars] = useState(50);
-  const [seedCount, setSeedCount] = useState(10);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -312,7 +311,6 @@ export default function DashboardPage() {
     setStripeConnected(!!row.stripe_account_id);
     setMinBidDollars(row.min_bid_dollars ?? 5);
     setMaxBidDollars(row.max_bid_dollars ?? 50);
-    setSeedCount(row.seed_count ?? 10);
   }
 
   // ── Reload creator row from DB (called after settings saves) ──────────────
@@ -571,7 +569,6 @@ export default function DashboardPage() {
         setSaveProgress('Resetting to defaults…');
         const res = await fetch('/api/dashboard/seed/reset', { method: 'POST' });
         if (res.ok) {
-          setSeedCount(10);
           setSaveProgress('✓ Reset to 10 default fans!');
           setEditRows({});
           fetchAnalytics(creator!.id);
@@ -663,42 +660,6 @@ export default function DashboardPage() {
       setTimeout(() => setSettingsMsg(null), 3000);
     } else {
       setSettingsMsg({ type: 'err', text: 'Failed to save' });
-    }
-  };
-
-  // ── Save seed count ────────────────────────────────────────────────────────
-  const doSaveSeedCount = async () => {
-    if (!creator) return;
-    setSavingSettings(true);
-    setSettingsMsg(null);
-    const res = await fetch('/api/dashboard/podium-settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seedCount }),
-    });
-    setSavingSettings(false);
-    if (res.ok) {
-      fetchAnalytics(creator.id);
-      fetchCreator();
-      setSettingsMsg({ type: 'ok', text: '✓ Saved' });
-      setTimeout(() => setSettingsMsg(null), 3000);
-    } else {
-      const body = await res.json().catch(() => ({})) as { error?: string };
-      setSettingsMsg({ type: 'err', text: body.error ?? 'Failed to save' });
-    }
-  };
-
-  const handleSaveSeedCount = async () => {
-    if (!creator) return;
-    const currentCount = creator.seed_count ?? 10;
-    if (seedCount < currentCount) {
-      const delta = currentCount - seedCount;
-      setConfirmDialog({
-        message: `⚠️ This will permanently delete ${delta} demo fan(s). Are you sure?`,
-        onConfirm: doSaveSeedCount,
-      });
-    } else {
-      await doSaveSeedCount();
     }
   };
 
@@ -1117,38 +1078,6 @@ export default function DashboardPage() {
                 {savingSettings ? '…' : 'Save'}
               </motion.button>
             </div>
-          </div>
-
-          {/* Seed count */}
-          <div>
-            <label className="text-[10px] text-slate-500 tracking-widest uppercase block mb-1.5 font-medium">
-              Number of demo fans to show (0–10)
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                value={seedCount}
-                min={0}
-                max={10}
-                onChange={e => setSeedCount(Number(e.target.value))}
-                className="w-32 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm
-                           focus:outline-none focus:border-indigo-500/60 transition-all"
-              />
-              <motion.button
-                onClick={handleSaveSeedCount}
-                disabled={savingSettings || !creator}
-                className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white
-                           bg-indigo-600 hover:bg-indigo-500
-                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-              >
-                {savingSettings ? '…' : 'Save'}
-              </motion.button>
-            </div>
-            <p className="text-[10px] text-slate-600 mt-1">
-              Decreasing removes the lowest-amount demo fans
-            </p>
           </div>
 
           <AnimatePresence>
