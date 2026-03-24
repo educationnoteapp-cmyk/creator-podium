@@ -39,6 +39,8 @@ export interface Bid {
   message: string | null;
   amount_paid: number;
   stripe_payment_intent_id: string;
+  is_seed?: boolean | null;
+  is_active?: boolean | null;
   created_at: string;
 }
 

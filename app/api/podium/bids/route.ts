@@ -32,10 +32,19 @@ export async function GET(req: NextRequest) {
       avgCents: 0,
       hasSeedData: false,
       seedBids: [],
+      realFansOnPodium: 0,
       minBidDollars: creator?.min_bid_dollars ?? 5,
       maxBidDollars: creator?.max_bid_dollars ?? 50,
     })
   }
+
+  // Fetch podium_spots to determine which seed fans are currently showing
+  const { data: podiumSpots } = await supabaseAdmin
+    .from('podium_spots')
+    .select('stripe_payment_intent_id')
+    .eq('creator_id', creatorId)
+
+  const podiumStripeIds = new Set(podiumSpots?.map(s => s.stripe_payment_intent_id) ?? [])
 
   // Seeds are identified by the is_seed column
   // Also filter out any bids with empty fan_handle (guard against bad data)
@@ -44,7 +53,20 @@ export async function GET(req: NextRequest) {
 
   const validBids = allBids.filter(b => b.fan_handle && b.fan_handle.trim() !== '')
   const realBids = validBids.filter(b => !isSeed(b))
-  const seedBids = validBids.filter(b => isSeed(b))
+
+  // CHANGE 5: Only include seed fans that are:
+  // 1. Currently in podium_spots (still showing on podium)
+  // 2. is_active = false (manually disabled by creator — shown in edit view)
+  // Displaced seed fans (pushed off by real fans, still is_active=true) are excluded.
+  const seedBids = validBids.filter(b =>
+    isSeed(b) && (
+      podiumStripeIds.has(b.stripe_payment_intent_id) ||
+      b.is_active === false
+    )
+  )
+
+  // Count real fans currently on the podium
+  const realFansOnPodium = realBids.filter(b => podiumStripeIds.has(b.stripe_payment_intent_id)).length
 
   const totalBids = realBids.length
   const totalCents = realBids.reduce((s, b) => s + b.amount_paid, 0)
@@ -52,7 +74,7 @@ export async function GET(req: NextRequest) {
   const avgCents = totalBids > 0 ? Math.round(totalCents / totalBids) : 0
 
   return NextResponse.json({
-    bids: validBids.slice(0, 10),
+    bids: validBids.filter(b => !isSeed(b) || podiumStripeIds.has(b.stripe_payment_intent_id)).slice(0, 10),
     totalBids,
     totalCents,
     kingCents: king?.amount_paid ?? 0,
@@ -60,6 +82,7 @@ export async function GET(req: NextRequest) {
     avgCents,
     hasSeedData: seedBids.length > 0,
     seedBids,
+    realFansOnPodium,
     minBidDollars: creator?.min_bid_dollars ?? 5,
     maxBidDollars: creator?.max_bid_dollars ?? 50,
   })

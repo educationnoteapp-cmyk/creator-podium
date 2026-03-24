@@ -43,12 +43,13 @@ function RollingCount({ value, className }: { value: number; className?: string 
 // ── Types ───────────────────────────────────────────────────────────────────
 interface Analytics {
   totalBids: number;
-  totalCents: number;     // raw cents — divide by 100 to display
-  kingCents: number;      // raw cents
+  totalCents: number;       // raw cents — divide by 100 to display
+  kingCents: number;        // raw cents
   kingHandle: string | null;
-  avgCents: number;       // raw cents
-  hasSeedData: boolean;   // true if any bid has seed_ prefix
-  seedBids: Bid[];        // all seeded bids for the Manage Demo Fans editor
+  avgCents: number;         // raw cents
+  hasSeedData: boolean;     // true if any seed bid is visible
+  seedBids: Bid[];          // seed bids for the Manage Demo Fans editor
+  realFansOnPodium: number; // real (paying) fans currently on the podium
 }
 
 interface CreatorRow {
@@ -114,20 +115,35 @@ interface SeedEditState {
   message: string;
   amount: number;
   avatarUrl: string | null;
+  isActive: boolean;
   error: string;
 }
 
 interface SeedFanRowProps {
   bid: Bid;
   editState: SeedEditState;
-  onChange: (bidId: string, field: keyof Omit<SeedEditState, 'error'>, value: string | number | null) => void;
+  onChange: (bidId: string, field: keyof Omit<SeedEditState, 'error' | 'isActive'>, value: string | number | null) => void;
+  onToggleActive: (bidId: string) => void;
   minBidDollars: number;
   maxBidDollars: number;
 }
 
-function SeedFanRow({ bid, editState, onChange, minBidDollars, maxBidDollars }: SeedFanRowProps) {
+function SeedFanRow({ bid, editState, onChange, onToggleActive, minBidDollars, maxBidDollars }: SeedFanRowProps) {
   return (
-    <div className="flex gap-2 items-start bg-slate-800 rounded-xl p-3 flex-wrap">
+    <div className={`flex gap-2 items-start bg-slate-800 rounded-xl p-3 flex-wrap transition-opacity ${!editState.isActive ? 'opacity-40' : ''}`}>
+      {/* Active/inactive toggle */}
+      <button
+        type="button"
+        onClick={() => onToggleActive(bid.id)}
+        title={editState.isActive ? 'Active — click to hide from podium' : 'Hidden — click to show on podium'}
+        className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-colors ${
+          editState.isActive
+            ? 'bg-green-600 hover:bg-green-500 text-white'
+            : 'bg-slate-600 hover:bg-slate-500 text-slate-300'
+        }`}
+      >
+        {editState.isActive ? '✓' : '✗'}
+      </button>
       <AvatarPicker
         fanHandle={editState.handle}
         value={editState.avatarUrl}
@@ -156,6 +172,9 @@ function SeedFanRow({ bid, editState, onChange, minBidDollars, maxBidDollars }: 
           className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm w-16"
         />
       </div>
+      {!editState.isActive && !editState.error && (
+        <span className="w-full text-slate-500 text-xs">Hidden from podium</span>
+      )}
       {editState.error && (
         <span className="w-full text-red-400 text-xs mt-0.5">{editState.error}</span>
       )}
@@ -193,6 +212,7 @@ export default function DashboardPage() {
     avgCents: 0,
     hasSeedData: false,
     seedBids: [],
+    realFansOnPodium: 0,
   });
 
   // Seeding
@@ -327,6 +347,7 @@ export default function DashboardPage() {
       kingHandle?: string | null;
       avgCents?: number;
       hasSeedData?: boolean;
+      realFansOnPodium?: number;
     };
 
     console.log('Analytics response:', body);
@@ -334,13 +355,14 @@ export default function DashboardPage() {
       body.seedBids?.map((b) => ({ id: b.id, pi: b.stripe_payment_intent_id })));
 
     setAnalytics({
-      totalBids:   body.totalBids   ?? 0,
-      totalCents:  body.totalCents  ?? 0,
-      kingCents:   body.kingCents   ?? 0,
-      kingHandle:  body.kingHandle  ?? null,
-      avgCents:    body.avgCents    ?? 0,
-      hasSeedData: body.hasSeedData ?? false,
-      seedBids:    body.seedBids    ?? [],
+      totalBids:        body.totalBids        ?? 0,
+      totalCents:       body.totalCents       ?? 0,
+      kingCents:        body.kingCents        ?? 0,
+      kingHandle:       body.kingHandle       ?? null,
+      avgCents:         body.avgCents         ?? 0,
+      hasSeedData:      body.hasSeedData      ?? false,
+      seedBids:         body.seedBids         ?? [],
+      realFansOnPodium: body.realFansOnPodium ?? 0,
     });
     setRawBids(body.bids ?? []);
   }, []);
@@ -418,6 +440,7 @@ export default function DashboardPage() {
             message: b.message ?? '',
             amount: b.amount_paid / 100,
             avatarUrl: b.fan_avatar_url,
+            isActive: b.is_active !== false,
             error: '',
           };
         }
@@ -432,12 +455,49 @@ export default function DashboardPage() {
   }, [analytics.seedBids]);
 
   // ── Edit row change handler ────────────────────────────────────────────────
-  const handleRowChange = useCallback((bidId: string, field: keyof Omit<SeedEditState, 'error'>, value: string | number | null) => {
+  const handleRowChange = useCallback((bidId: string, field: keyof Omit<SeedEditState, 'error' | 'isActive'>, value: string | number | null) => {
     setEditRows(prev => ({
       ...prev,
       [bidId]: { ...prev[bidId], [field]: value, error: '' },
     }));
   }, []);
+
+  // ── Toggle active/inactive — immediate API save ────────────────────────────
+  const handleToggleActive = useCallback(async (bidId: string) => {
+    if (!creator) return;
+    const row = editRows[bidId];
+    if (!row) return;
+    const newIsActive = !row.isActive;
+
+    // Optimistic update
+    setEditRows(prev => ({
+      ...prev,
+      [bidId]: { ...prev[bidId], isActive: newIsActive },
+    }));
+
+    const res = await fetch('/api/dashboard/seed/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bidId,
+        isActive: newIsActive,
+        fanHandle: row.handle,
+        message: row.message,
+        fanAvatarUrl: row.avatarUrl,
+        amountDollars: row.amount,
+      }),
+    });
+
+    if (res.ok) {
+      fetchAnalytics(creator.id);
+    } else {
+      // Revert on failure
+      setEditRows(prev => ({
+        ...prev,
+        [bidId]: { ...prev[bidId], isActive: !newIsActive },
+      }));
+    }
+  }, [creator, editRows, fetchAnalytics]);
 
   // ── Save all demo fans ─────────────────────────────────────────────────────
   const handleSaveAll = async () => {
@@ -483,6 +543,7 @@ export default function DashboardPage() {
           message: row.message,
           fanAvatarUrl: row.avatarUrl,
           amountDollars: row.amount,
+          isActive: row.isActive,
         }),
       });
       if (!res.ok) {
@@ -555,15 +616,30 @@ export default function DashboardPage() {
       setSettingsMsg({ type: 'err', text: 'Minimum bid must be less than maximum bid' });
       return;
     }
-    const belowMinCount = analytics.seedBids.filter(b => b.amount_paid < minBidDollars * 100).length;
-    if (belowMinCount > 0) {
-      setConfirmDialog({
-        message: `⚠️ This will permanently delete ${belowMinCount} demo fan(s) below the new minimum. Are you sure?`,
-        onConfirm: doSaveMinBid,
+    // CHANGE 2: Block save if any ACTIVE seed fans are below the new minimum.
+    // Inactive fans (hidden from podium) are exempt — they don't affect the live podium.
+    const activeSeedFansBelow = analytics.seedBids.filter(b =>
+      b.is_active !== false &&
+      b.amount_paid < minBidDollars * 100
+    );
+    if (activeSeedFansBelow.length > 0) {
+      // Highlight affected rows with an error
+      setEditRows(prev => {
+        const next = { ...prev };
+        for (const b of activeSeedFansBelow) {
+          if (next[b.id]) {
+            next[b.id] = { ...next[b.id], error: 'Disable or raise price before changing minimum' };
+          }
+        }
+        return next;
       });
-    } else {
-      await doSaveMinBid();
+      setSettingsMsg({
+        type: 'err',
+        text: `⚠ Disable or raise the price of ${activeSeedFansBelow.length} demo fan${activeSeedFansBelow.length !== 1 ? 's' : ''} before setting this minimum`,
+      });
+      return;
     }
+    await doSaveMinBid();
   };
 
   // ── Save max bid dollars ───────────────────────────────────────────────────
@@ -1188,11 +1264,18 @@ export default function DashboardPage() {
               </p>
             </div>
 
+            {analytics.realFansOnPodium > 0 && (
+              <p className="text-sm text-emerald-400 font-medium">
+                🎉 {analytics.realFansOnPodium} real fan{analytics.realFansOnPodium !== 1 ? 's' : ''} have joined your podium
+              </p>
+            )}
+
             <div className="space-y-2">
               {analytics.seedBids.map((bid) => {
                 const row = editRows[bid.id] ?? {
                   handle: bid.fan_handle, message: bid.message ?? '',
-                  amount: bid.amount_paid / 100, avatarUrl: bid.fan_avatar_url, error: '',
+                  amount: bid.amount_paid / 100, avatarUrl: bid.fan_avatar_url,
+                  isActive: bid.is_active !== false, error: '',
                 };
                 return (
                   <SeedFanRow
@@ -1200,6 +1283,7 @@ export default function DashboardPage() {
                     bid={bid}
                     editState={row}
                     onChange={handleRowChange}
+                    onToggleActive={handleToggleActive}
                     minBidDollars={minBidDollars}
                     maxBidDollars={maxBidDollars}
                   />

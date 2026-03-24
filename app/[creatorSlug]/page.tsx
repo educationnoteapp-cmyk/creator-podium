@@ -38,12 +38,15 @@ export default async function CreatorPodiumPage({ params }: Props) {
     );
   }
 
-  // Fetch the top 10 bids by amount (descending) — determines leaderboard positions.
+  // Fetch the top 10 active bids by amount (descending) — determines leaderboard positions.
+  // Exclude inactive seed bids (is_active = false) so they don't affect the podium display
+  // or the minimum bid calculation in BidButton.
   // supabaseAdmin bypasses RLS so this works for anonymous visitors.
   const { data: initialBids, error: bidsError } = await supabaseAdmin
     .from('bids')
     .select('*')
     .eq('creator_id', creator.id)
+    .or('is_active.is.null,is_active.eq.true')
     .order('amount_paid', { ascending: false })
     .limit(10);
 
