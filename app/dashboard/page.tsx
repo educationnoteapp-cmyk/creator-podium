@@ -51,16 +51,6 @@ interface Analytics {
   seedBids: Bid[];        // all seeded bids for the Manage Demo Fans editor
 }
 
-interface EditRow {
-  id: string;
-  fanHandle: string;
-  message: string;
-  avatarUrl: string | null;
-  amountDollars: number;  // dollars (integer), converted to cents when saving
-  saving: boolean;
-  saveMsg: string | null;
-}
-
 interface CreatorRow {
   id: string;
   slug: string;
@@ -115,6 +105,81 @@ const PLAN_CONFIG: Record<string, {
   },
 };
 
+// ── SeedFanRow ───────────────────────────────────────────────────────────────
+function SeedFanRow({ bid }: { bid: any }) {
+  const [handle, setHandle] = useState(bid.fan_handle)
+  const [message, setMessage] = useState(bid.message ?? '')
+  const [amount, setAmount] = useState(bid.amount_paid / 100)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    const res = await fetch('/api/dashboard/seed/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bidId: bid.id,
+        fanHandle: handle,
+        message,
+        fanAvatarUrl: bid.fan_avatar_url,
+        amountDollars: amount
+      })
+    })
+    setSaving(false)
+    if (res.ok) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } else {
+      setError('Failed to save')
+    }
+  }
+
+  return (
+    <div className="flex gap-2 items-center bg-slate-800 rounded-xl p-3 flex-wrap">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={bid.fan_avatar_url ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(bid.fan_handle || 'fan')}`}
+        alt={handle}
+        className="w-10 h-10 rounded-full flex-shrink-0"
+      />
+      <input
+        value={handle}
+        onChange={e => setHandle(e.target.value)}
+        placeholder="Handle"
+        className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm w-32 min-w-0"
+      />
+      <input
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        placeholder="Message"
+        className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm flex-1 min-w-0"
+      />
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400 text-sm">$</span>
+        <input
+          type="number"
+          value={amount}
+          min={5}
+          max={50}
+          onChange={e => setAmount(Number(e.target.value))}
+          className="bg-slate-700 text-white rounded-lg px-2 py-1 text-sm w-16"
+        />
+      </div>
+      <button
+        onClick={save}
+        disabled={saving}
+        className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-3 py-1 text-sm font-medium disabled:opacity-50 min-w-[60px]"
+      >
+        {saving ? '...' : saved ? '✓ Saved' : 'Save'}
+      </button>
+      {error && <span className="text-red-400 text-xs">{error}</span>}
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const supabase = createClient();
@@ -153,8 +218,6 @@ export default function DashboardPage() {
 
   // Raw bids (top-10 for podium display)
   const [rawBids, setRawBids] = useState<Bid[]>([]);
-  const [editRows, setEditRows] = useState<EditRow[]>([]);
-  const [seedEditorOpen, setSeedEditorOpen] = useState(false);
 
   // ── Auth check ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -273,50 +336,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (creator?.id) fetchAnalytics(creator.id);
   }, [creator?.id, fetchAnalytics]);
-
-  // ── Init edit rows from analytics.seedBids (no intermediate state, no timing gap)
-  useEffect(() => {
-    const seeds = analytics.seedBids;
-    if (seeds.length === 0) { setEditRows([]); return; }
-    setEditRows(seeds.map((b) => ({
-      id: b.id,
-      fanHandle: b.fan_handle,
-      message: b.message ?? '',
-      avatarUrl: b.fan_avatar_url,
-      amountDollars: Math.round(b.amount_paid / 100),
-      saving: false,
-      saveMsg: null,
-    })));
-  }, [analytics.seedBids]);
-
-  // ── Save seeded row ─────────────────────────────────────────────────────────
-  const handleSaveRow = async (rowIdx: number) => {
-    const row = editRows[rowIdx];
-    setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saving: true, saveMsg: null } : r));
-
-    const res = await fetch('/api/dashboard/seed/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bidId: row.id,
-        fanHandle: row.fanHandle,
-        message: row.message,
-        fanAvatarUrl: row.avatarUrl,
-        amountDollars: row.amountDollars,
-      }),
-    });
-    const body = await res.json() as { ok?: boolean; error?: string };
-    const saveMsg = res.ok ? '✓ Saved' : (body.error ?? 'Failed to save');
-
-    setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saving: false, saveMsg } : r));
-
-    if (res.ok && creator?.id) {
-      fetchAnalytics(creator.id);
-      setTimeout(() => {
-        setEditRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, saveMsg: null } : r));
-      }, 2500);
-    }
-  };
 
   // ── Save slug ──────────────────────────────────────────────────────────────
   const handleSaveSlug = async () => {
@@ -777,158 +796,21 @@ export default function DashboardPage() {
         </motion.section>
 
         {/* ── SECTION 4b: Manage Demo Fans ─────────────────────────────────── */}
-        <AnimatePresence>
-          {analytics.seedBids.length > 0 && (
-            <motion.section
-              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              {/* Collapsible header */}
-              <button
-                type="button"
-                onClick={() => setSeedEditorOpen((o) => !o)}
-                className="w-full flex items-center justify-between p-6 text-left
-                           hover:bg-slate-800/40 transition-colors"
-              >
-                <div>
-                  <h3 className="text-lg font-bold text-white">Manage Demo Fans</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {analytics.seedBids.length} demo fan{analytics.seedBids.length !== 1 ? 's' : ''} · click to {seedEditorOpen ? 'collapse' : 'expand'}
-                  </p>
-                </div>
-                <motion.span
-                  animate={{ rotate: seedEditorOpen ? 180 : 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="text-slate-500 text-lg flex-shrink-0"
-                >
-                  ▾
-                </motion.span>
-              </button>
-
-              {/* Collapsible body */}
-              <AnimatePresence initial={false}>
-                {seedEditorOpen && (
-                  <motion.div
-                    key="seed-editor-body"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeInOut' }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-6 pb-6 space-y-3">
-                      {editRows.map((row, idx) => (
-                        <div
-                          key={row.id}
-                          className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
-                        >
-                          {/* Avatar + Handle */}
-                          <div className="flex items-center gap-3">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={row.avatarUrl ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(row.fanHandle || 'fan')}`}
-                              alt={row.fanHandle}
-                              className="w-12 h-12 rounded-full object-cover border-2 border-slate-700 bg-slate-800 flex-shrink-0"
-                            />
-                            <input
-                              type="text"
-                              value={row.fanHandle}
-                              onChange={(e) =>
-                                setEditRows((prev) =>
-                                  prev.map((r, i) => i === idx ? { ...r, fanHandle: e.target.value } : r)
-                                )
-                              }
-                              placeholder="Fan handle"
-                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                         text-sm text-white placeholder:text-slate-600
-                                         focus:outline-none focus:border-indigo-500/60 transition-colors"
-                            />
-                          </div>
-
-                          {/* Message */}
-                          <input
-                            type="text"
-                            value={row.message}
-                            onChange={(e) =>
-                              setEditRows((prev) =>
-                                prev.map((r, i) => i === idx ? { ...r, message: e.target.value } : r)
-                              )
-                            }
-                            placeholder="Message"
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2
-                                       text-sm text-white placeholder:text-slate-600
-                                       focus:outline-none focus:border-indigo-500/60 transition-colors"
-                          />
-
-                          {/* Amount + Save */}
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 bg-slate-900 border border-slate-700
-                                            rounded-lg px-3 py-2 flex-shrink-0">
-                              <span className="text-slate-500 text-sm">$</span>
-                              <input
-                                type="number"
-                                min={5}
-                                max={50}
-                                step={1}
-                                value={row.amountDollars}
-                                onChange={(e) => {
-                                  const v = Math.max(5, Math.min(50, parseInt(e.target.value, 10) || 5));
-                                  setEditRows((prev) =>
-                                    prev.map((r, i) => i === idx ? { ...r, amountDollars: v } : r)
-                                  );
-                                }}
-                                className="w-14 bg-transparent text-sm text-white text-center
-                                           focus:outline-none [appearance:textfield]
-                                           [&::-webkit-outer-spin-button]:appearance-none
-                                           [&::-webkit-inner-spin-button]:appearance-none"
-                              />
-                            </div>
-                            <span className="text-[10px] text-slate-600 flex-shrink-0">$5–$50</span>
-                            <div className="flex-1" />
-                            <motion.button
-                              onClick={() => handleSaveRow(idx)}
-                              disabled={row.saving}
-                              className="px-4 py-2 rounded-lg font-semibold text-xs
-                                         bg-indigo-600 hover:bg-indigo-500 text-white
-                                         disabled:opacity-50 transition-colors flex-shrink-0"
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.97 }}
-                            >
-                              {row.saving ? (
-                                <span className="flex items-center gap-1.5">
-                                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  Saving…
-                                </span>
-                              ) : 'Save'}
-                            </motion.button>
-                          </div>
-
-                          {/* Per-row feedback */}
-                          <AnimatePresence>
-                            {row.saveMsg && (
-                              <motion.p
-                                key="save-msg"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className={`text-xs ${row.saveMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}
-                              >
-                                {row.saveMsg}
-                              </motion.p>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.section>
-          )}
-        </AnimatePresence>
+        {analytics?.hasSeedData && (
+          <div className="bg-slate-900 rounded-2xl p-6 border border-slate-700 mt-6">
+            <h2 className="text-lg font-bold text-white mb-1">
+              🎭 Manage Demo Fans
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">
+              Edit your demo fans. Real paying fans cannot be edited.
+            </p>
+            <div className="space-y-3">
+              {analytics.seedBids.map((bid: any) => (
+                <SeedFanRow key={bid.id} bid={bid} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── SECTION 5: Plan Badge ─────────────────────────────────────────── */}
         <motion.section

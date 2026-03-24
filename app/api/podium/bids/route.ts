@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing creator_id' }, { status: 400 })
   }
 
-  // Fetch ALL bids (no limit) for correct analytics
   const { data: allBids, error } = await supabaseAdmin
     .from('bids')
     .select('*')
@@ -29,27 +28,21 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Compute analytics from ALL bids (raw cents, NO division by 100)
-  const totalBids = allBids.length
-  const totalCents = allBids.reduce((sum, b) => sum + b.amount_paid, 0)
-  const king = allBids[0] // already sorted DESC
-  const avgCents = Math.round(totalCents / totalBids)
-  const hasSeedData = allBids.some(b =>
-    b.stripe_payment_intent_id?.startsWith('seed_')
-  )
-  const seedBids = allBids.filter(b =>
-    b.stripe_payment_intent_id?.startsWith('seed_')
-  )
-  const top10 = allBids.slice(0, 10)
+  const realBids = allBids.filter(b => !b.is_seed)
+  const seedBids = allBids.filter(b => b.is_seed)
+  const totalBids = realBids.length
+  const totalCents = realBids.reduce((s, b) => s + b.amount_paid, 0)
+  const king = realBids.length > 0 ? realBids[0] : null
+  const avgCents = totalBids > 0 ? Math.round(totalCents / totalBids) : 0
 
   return NextResponse.json({
-    bids: top10,          // for podium display
-    totalBids,            // total count ALL bids
-    totalCents,           // raw cents, NO division
-    kingCents: king.amount_paid,   // raw cents
-    kingHandle: king.fan_handle,
-    avgCents,             // raw cents
-    hasSeedData,
-    seedBids              // all seed_ bids for editing
+    bids: allBids.slice(0, 10),
+    totalBids,
+    totalCents,
+    kingCents: king?.amount_paid ?? 0,
+    kingHandle: king?.fan_handle ?? '',
+    avgCents,
+    hasSeedData: seedBids.length > 0,
+    seedBids
   })
 }
